@@ -1,20 +1,14 @@
-from django.urls import path
-from .views import (
-    ArtistListCreateView,
-    ArtworkListCreateView,
-    ArtworkDetailView,
-    ArtistDetailView,
-)
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import ArtistViewSet, ArtworkViewSet, debug_media, debug_request, debug_media_file
 
+router = DefaultRouter()
+router.register(r'artists', ArtistViewSet)
+router.register(r'artworks', ArtworkViewSet)
 
 urlpatterns = [
-    # Artist endpoints
-    path('artists/', ArtistListCreateView.as_view(), name='artist-list'),
-    path('artists/<int:pk>/', ArtistDetailView.as_view(),
-         name='artist-detail'),
-
-    # Artwork endpoints
-    path('artworks/', ArtworkListCreateView.as_view(), name='artwork-list'),
-    path('artworks/<int:pk>/', ArtworkDetailView.as_view(),
-         name='artwork-detail'),
+    path('', include(router.urls)),
+    path('debug-media/', debug_media, name='debug-media'),
+    path('debug-request/', debug_request, name='debug-request'),
+    path('debug-media-file/<path:path>', debug_media_file, name='debug-media-file'),
 ]

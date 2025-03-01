@@ -71,3 +71,6 @@ Thumbs.db
 # Project specific
 migrations/*.py
 !migrations/__init__.py 
+artworks/migrations/*.py
+!artworks/migrations/__init__.py
+a
