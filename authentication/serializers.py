@@ -25,8 +25,8 @@ class UserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True)
-    artist_name = serializers.CharField(required=False)  # Optional artist name
-    bio = serializers.CharField(required=False)  # Optional artist bio
+    artist_name = serializers.CharField(required=False)
+    bio = serializers.CharField(required=False)
 
     class Meta:
         model = User
@@ -46,7 +46,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         artist_name = validated_data.pop('artist_name', None)
         bio = validated_data.pop('bio', None)
-        
+
         # Create User
         user = User.objects.create_user(
             username=validated_data['username'],
