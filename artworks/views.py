@@ -14,7 +14,7 @@ import os
     description='List all artists or create a new artist'
 )
 class ArtistListCreateView(generics.ListCreateAPIView):
-    queryset = Artist.objects.all()
+    queryset = Artist.objects.all().order_by('name')  # Order by name alphabetically
     serializer_class = ArtistSerializer
 
     @extend_schema(
@@ -179,23 +179,23 @@ class ArtistViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
-        
+
         # Check if user is the owner of this artist profile
         if instance.user != request.user:
             return Response(
                 {"detail": "You do not have permission to update this profile."},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
+
         # Print debug information
         print(f"Request data: {request.data}")
         print(f"Request FILES: {request.FILES}")
-        
+
         # Handle profile picture upload
         profile_picture = request.FILES.get('profile_picture')
         if profile_picture:
             print(f"Processing profile picture: {profile_picture.name} ({profile_picture.content_type}, {profile_picture.size} bytes)")
-            
+
             # If there's an existing profile picture, delete it to avoid orphaned files
             if instance.profile_picture:
                 try:
@@ -203,12 +203,12 @@ class ArtistViewSet(viewsets.ModelViewSet):
                     print(f"Deleted old profile picture")
                 except Exception as e:
                     print(f"Error deleting old profile picture: {str(e)}")
-            
+
             # Set the new profile picture
             instance.profile_picture = profile_picture
             instance.save()
             print(f"Saved new profile picture: {instance.profile_picture.url}")
-        
+
         serializer = self.get_serializer(
             instance, 
             data=request.data, 
@@ -217,7 +217,7 @@ class ArtistViewSet(viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
-        
+
         # Return the updated instance with the full URL for profile_picture
         updated_serializer = self.get_serializer(instance, context={'request': request})
         return Response(updated_serializer.data)
@@ -240,6 +240,10 @@ class ArtworkViewSet(viewsets.ModelViewSet):
         context.update({"request": self.request})
         return context
 
+    @extend_schema(
+        summary="Create a new artwork",
+        description="Create a new artwork for the authenticated artist"
+    )
     def create(self, request, *args, **kwargs):
         """
         Create a new artwork with better error handling
@@ -294,6 +298,66 @@ class ArtworkViewSet(viewsets.ModelViewSet):
                 {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+    @extend_schema(
+        summary="Update an artwork",
+        description="Update an existing artwork's details"
+    )
+    def update(self, request, *args, **kwargs):
+        """
+        Update an artwork with better error handling
+        """
+        instance = self.get_object()
+
+        # Check if user is the owner of this artwork
+        if instance.artist.user != request.user:
+            return Response(
+                {"detail": "You do not have permission to update this artwork."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = self.get_serializer(
+            instance, 
+            data=request.data, 
+            partial=kwargs.get('partial', False),
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        return Response(serializer.data)
+
+    @extend_schema(
+        summary="Delete an artwork",
+        description="Delete an existing artwork"
+    )
+    def destroy(self, request, *args, **kwargs):
+        """
+        Delete an artwork with better error handling
+        """
+        instance = self.get_object()
+
+        # Check if user is the owner of this artwork
+        if instance.artist.user != request.user:
+            return Response(
+                {"detail": "You do not have permission to delete this artwork."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Delete the artwork
+        self.perform_destroy(instance)
+
+        # Update the artist's artwork count
+        instance.artist.update_artwork_count()
+
+        return Response(
+            {"detail": "Artwork successfully deleted."},
+            status=status.HTTP_204_NO_CONTENT
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
 
 
 def debug_media(request):

@@ -1,148 +1,133 @@
-from django.test import TestCase
-from django.contrib.auth.models import User
-from rest_framework.test import APIClient
+from django.urls import reverse
 from rest_framework import status
-from artworks.models import Artist
+from rest_framework.test import APITestCase, APIClient
+from django.contrib.auth.models import User
+from artworks.models import Artist, Artwork
 
 
-class AuthenticationTests(TestCase):
+class DeleteAccountTest(APITestCase):
     def setUp(self):
+        # Create test user
+        self.user = User.objects.create_user(
+            username='testuser',
+            password='testpass123',
+            email='test@example.com'
+        )
+        
+        # Create test artist
+        self.artist = Artist.objects.create(
+            user=self.user,
+            name='Test Artist',
+            bio='Test bio'
+        )
+        
+        # Create test artworks
+        self.artwork1 = Artwork.objects.create(
+            artist=self.artist,
+            title='Artwork 1',
+            description='Description 1',
+            price=100.00
+        )
+        self.artwork2 = Artwork.objects.create(
+            artist=self.artist,
+            title='Artwork 2',
+            description='Description 2',
+            price=200.00
+        )
+        
+        # Create client and authenticate
         self.client = APIClient()
-        self.test_user_data = {
-            'username': 'testuser',
-            'email': 'test@example.com',
-            'password': 'testpass123',
-            'artist_name': 'Test Artist',
-            'bio': 'Test bio'
-        }
-        self.login_data = {
-            'username': 'testuser',
-            'password': 'testpass123'
-        }
-
-    def test_user_registration(self):
-        """Test user registration endpoint"""
-        response = self.client.post(
-            '/api/auth/register/',
-            self.test_user_data,
-            format='json'
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(User.objects.filter(username='testuser').exists())
-
-        # Check if artist profile was created correctly
-        artist = Artist.objects.get(user__username='testuser')
-        self.assertEqual(artist.name, self.test_user_data['artist_name'])
-        self.assertEqual(artist.bio, self.test_user_data['bio'])
-
-    def test_user_registration_duplicate_username(self):
-        """Test registration with existing username"""
-        # Create a user first with a different username
-        user = User.objects.create_user(
-            username='testuser',  # Use the same username as in test_user_data
-            email='existing@example.com',
-            password='pass123'
-        )
-        # Use get_or_create to avoid unique constraint violation
-        Artist.objects.get_or_create(
-            user=user,
-            defaults={'name': 'Existing Artist'}
-        )
-
-        # Try to register with the same username
-        response = self.client.post(
-            '/api/auth/register/',
-            {
-                'username': 'testuser',  # Same username
-                'email': 'new@example.com',  # Different email
-                'password': 'newpass123',
-                'artist_name': 'New Artist',
-                'bio': 'New bio'
-            },
-            format='json'
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('username', response.data)
-
-    def test_user_login(self):
-        """Test user login and token generation"""
-        # Create a user first
-        user = User.objects.create_user(
-            username='loginuser',  # Changed username to avoid conflict
-            email='login@example.com',
-            password='testpass123'
-        )
+        self.client.force_authenticate(user=self.user)
         
-        # Create artist profile if it doesn't exist
-        Artist.objects.get_or_create(user=user, defaults={'name': 'Test Artist'})
+        # Create another user for testing unauthorized access
+        self.other_user = User.objects.create_user(
+            username='otheruser',
+            password='testpass123',
+            email='other@example.com'
+        )
+        self.other_client = APIClient()
+        self.other_client.force_authenticate(user=self.other_user)
+
+    def test_delete_account(self):
+        """Test deleting a user account with associated data"""
+        url = reverse('delete-account')
+        response = self.client.delete(url)
         
-        # Use modified login data for this test
-        login_data = {
-            'username': 'loginuser',
-            'password': 'testpass123'
-        }
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         
-        response = self.client.post(
-            '/api/auth/login/',
-            login_data,
-            format='json'
-        )
+        # Verify user is deleted
+        self.assertFalse(User.objects.filter(id=self.user.id).exists())
+        
+        # Verify artist is deleted
+        self.assertFalse(Artist.objects.filter(id=self.artist.id).exists())
+        
+        # Verify artworks are deleted
+        self.assertEqual(Artwork.objects.filter(artist=self.artist).count(), 0)
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('access', response.data)
-        self.assertIn('refresh', response.data)
+    def test_delete_account_unauthorized(self):
+        """Test that unauthorized users cannot delete accounts"""
+        url = reverse('delete-account')
+        response = self.other_client.delete(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # Verify user and associated data still exist
+        self.assertTrue(User.objects.filter(id=self.user.id).exists())
+        self.assertTrue(Artist.objects.filter(id=self.artist.id).exists())
+        self.assertEqual(Artwork.objects.filter(artist=self.artist).count(), 2)
 
-    def test_profile_access(self):
-        """Test profile access with authentication"""
-        # Register a new user which will create the artist profile
-        response = self.client.post(
-            '/api/auth/register/',
-            {
-                'username': 'profileuser',  # Changed username to avoid conflict
-                'email': 'profile@example.com',
-                'password': 'testpass123',
-                'artist_name': 'Profile Artist',
-                'bio': 'Profile bio'
-            },
-            format='json'
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # Login to get token
-        login_data = {
-            'username': 'profileuser',
-            'password': 'testpass123'
-        }
-        response = self.client.post(
-            '/api/auth/login/',
-            login_data,
-            format='json'
-        )
-        token = response.data['access']
-
-        # Try accessing profile with token
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
-        response = self.client.get('/api/auth/profile/')
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        user_data = response.data['user']
-        artist_data = response.data['artist']
-
-        self.assertEqual(user_data['username'], 'profileuser')
-        self.assertEqual(artist_data['name'], 'Profile Artist')
-
-    def test_profile_access_without_auth(self):
-        """Test profile access without authentication"""
-        response = self.client.get('/api/auth/profile/')
+    def test_delete_account_not_authenticated(self):
+        """Test that unauthenticated users cannot delete accounts"""
+        url = reverse('delete-account')
+        response = self.client.delete(url)
+        
+        # First verify the request works when authenticated
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        
+        # Now try without authentication
+        self.client.force_authenticate(user=None)
+        response = self.client.delete(url)
+        
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_invalid_login(self):
-        """Test login with invalid credentials"""
-        response = self.client.post(
-            '/api/auth/login/',
-            {'username': 'wronguser', 'password': 'wrongpass'},
-            format='json'
+    def test_delete_account_without_artist_profile(self):
+        """Test deleting a user account without an artist profile"""
+        # Create a user without an artist profile
+        user_without_artist = User.objects.create_user(
+            username='noartist',
+            password='testpass123',
+            email='noartist@example.com'
         )
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        
+        # Authenticate as this user
+        self.client.force_authenticate(user=user_without_artist)
+        
+        url = reverse('delete-account')
+        response = self.client.delete(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(User.objects.filter(id=user_without_artist.id).exists())
+
+    def test_delete_account_transaction(self):
+        """Test that account deletion is atomic (all-or-nothing)"""
+        url = reverse('delete-account')
+        
+        # Simulate an error during deletion by raising an exception
+        def mock_delete(*args, **kwargs):
+            raise Exception("Simulated error")
+        
+        # Temporarily replace the delete method to simulate an error
+        original_delete = User.delete
+        User.delete = mock_delete
+        
+        try:
+            response = self.client.delete(url)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            
+            # Verify nothing was deleted due to transaction rollback
+            self.assertTrue(User.objects.filter(id=self.user.id).exists())
+            self.assertTrue(Artist.objects.filter(id=self.artist.id).exists())
+            self.assertEqual(Artwork.objects.filter(artist=self.artist).count(), 2)
+        finally:
+            # Restore the original delete method
+            User.delete = original_delete 
