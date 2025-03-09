@@ -106,21 +106,35 @@ class DeleteAccountView(APIView):
     @transaction.atomic
     def delete(self, request):
         try:
-            user = request.user
+            # Get the user ID from the URL if provided, otherwise use request.user
+            user_id = request.data.get('user_id')
+            target_user = User.objects.get(id=user_id) if user_id else request.user
+            
+            # Check if user is trying to delete their own account
+            if target_user != request.user:
+                return Response(
+                    {"error": "You can only delete your own account"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
             
             # Delete associated artist profile if it exists
             try:
-                artist = Artist.objects.get(user=user)
+                artist = Artist.objects.get(user=target_user)
                 artist.delete()
             except Artist.DoesNotExist:
                 pass
             
             # Delete the user
-            user.delete()
+            target_user.delete()
             
             return Response(
                 {"message": "Account successfully deleted"},
                 status=status.HTTP_204_NO_CONTENT
+            )
+        except User.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
             )
         except Exception as e:
             return Response(

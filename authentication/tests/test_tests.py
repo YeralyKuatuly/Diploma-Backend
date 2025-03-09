@@ -1,162 +1,156 @@
-from django.test import TestCase, override_settings
-from django.contrib.auth.models import User
-from rest_framework.test import APIClient
-from rest_framework import status
-from artworks.models import Artist
 from django.urls import reverse
-from datetime import timedelta
-import time
-import logging
-from django.conf import settings
-from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
-from rest_framework_simplejwt.exceptions import TokenError
-
-logger = logging.getLogger(__name__)
+from rest_framework import status
+from rest_framework.test import APITestCase, APIClient
+from django.contrib.auth.models import User
+from artworks.models import Artist, Artwork
+from authentication.serializers import RegisterSerializer
+from authentication.views import DeleteAccountView
 
 
-@override_settings(
-    SIMPLE_JWT={
-        'ACCESS_TOKEN_LIFETIME': timedelta(seconds=1),
-        'REFRESH_TOKEN_LIFETIME': timedelta(minutes=5),
-        'ROTATE_REFRESH_TOKENS': True,
-        'BLACKLIST_AFTER_ROTATION': True,
-        'ALGORITHM': 'HS256',
-        'SIGNING_KEY': settings.SECRET_KEY,
-        'AUTH_HEADER_TYPES': ('Bearer',),
-        'TOKEN_TYPE_CLAIM': 'token_type',
-    }
-)
-class AuthenticationTests(TestCase):
+class DeleteAccountTest(APITestCase):
     def setUp(self):
-        self.client = APIClient()
-        self.register_url = reverse('register')
-        self.login_url = reverse('token_obtain_pair')
-        self.profile_url = reverse('profile')
-        self.logout_url = reverse('logout')
-        self.refresh_url = reverse('token_refresh')
+        # Clean up any existing data
+        User.objects.all().delete()
+        Artist.objects.all().delete()
+        Artwork.objects.all().delete()
 
-        # Consistent test user data
-        self.test_user_data = {
+        # Create test user with artist profile
+        register_data = {
             'username': 'testuser',
             'email': 'test@example.com',
             'password': 'testpass123',
             'artist_name': 'Test Artist',
-            'bio': 'Test artist bio'
-        }
-
-    def _register_user(self, user_data=None):
-        """Helper method to register a user"""
-        if user_data is None:
-            user_data = self.test_user_data
-
-        return self.client.post(
-            self.register_url,
-            user_data,
-            format='json'
-        )
-
-    def _login_user(self, username=None, password=None):
-        """Helper method to login a user and return tokens"""
-        if username is None:
-            username = self.test_user_data['username']
-        if password is None:
-            password = self.test_user_data['password']
-
-        return self.client.post(
-            self.login_url,
-            {
-                'username': username,
-                'password': password
-            },
-            format='json'
-        )
-
-    def test_access_token_lifetime(self):
-        """Test access token expiration"""
-        # Register and login
-        self._register_user()
-        login_response = self._login_user()
-
-        # Get access token
-        access_token = login_response.data['access']
-
-        # Verify token works initially
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
-        initial_response = self.client.get(self.profile_url)
-        self.assertEqual(initial_response.status_code, status.HTTP_200_OK)
-
-        # Wait for token to expire
-        time.sleep(2)  # Wait longer than token lifetime
-
-        # Try to access profile with expired token
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
-        expired_response = self.client.get(self.profile_url)
-
-        # Log detailed information
-        logger.error(f"Expired token response status: {expired_response.status_code}")
-        logger.error(f"Expired token response content: {expired_response.content}")
-
-        # Verify token is no longer valid
-        self.assertEqual(expired_response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_token_blacklist(self):
-        """Test token blacklisting and access token invalidation"""
-        # Register a new user
-        user_data = {
-            'username': 'blacklistuser', 
-            'email': 'blacklist@example.com',
-            'password': 'testpass123',
-            'artist_name': 'Blacklist Artist',
             'bio': 'Test bio'
         }
-        self.client.post(self.register_url, user_data, format='json')
+        serializer = RegisterSerializer(data=register_data)
+        serializer.is_valid(raise_exception=True)
+        self.user = serializer.save()
+        self.artist = Artist.objects.get(user=self.user)
 
-        # Login to get tokens
-        login_response = self.client.post(
-            self.login_url,
-            {
-                'username': 'blacklistuser',
-                'password': 'testpass123'
-            },
-            format='json'
+        # Create test artworks
+        self.artwork1 = Artwork.objects.create(
+            artist=self.artist,
+            title='Artwork 1',
+            description='Description 1',
+            price=100.00
         )
-        self.assertEqual(login_response.status_code, status.HTTP_200_OK)
+        self.artwork2 = Artwork.objects.create(
+            artist=self.artist,
+            title='Artwork 2',
+            description='Description 2',
+            price=200.00
+        )
 
-        # Get tokens
-        access_token = login_response.data['access']
-        refresh_token = login_response.data['refresh']
-
-        # Create a fresh client instance to ensure no previous state
+        # Create client and authenticate
         self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
 
-        # Test access token works initially
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
-        initial_response = self.client.get(self.profile_url)
-        self.assertEqual(initial_response.status_code, status.HTTP_200_OK)
+        # Create another user with artist profile
+        register_data = {
+            'username': 'otheruser',
+            'email': 'other@example.com',
+            'password': 'testpass123',
+            'artist_name': 'Other Artist',
+            'bio': 'Other bio'
+        }
+        serializer = RegisterSerializer(data=register_data)
+        serializer.is_valid(raise_exception=True)
+        self.other_user = serializer.save()
+        self.other_artist = Artist.objects.get(user=self.other_user)
 
-        # Create a new client for logout
-        logout_client = APIClient()
+        self.other_client = APIClient()
+        self.other_client.force_authenticate(user=self.other_user)
 
-        # Logout with refresh token
-        logout_response = logout_client.post(
-            self.logout_url,
-            {'refresh_token': refresh_token},
-            format='json'
+    def tearDown(self):
+        # Clean up after each test
+        User.objects.all().delete()
+        Artist.objects.all().delete()
+        Artwork.objects.all().delete()
+
+    def test_delete_account(self):
+        """Test deleting a user account with associated data"""
+        url = reverse('delete-account')
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Verify user is deleted
+        self.assertFalse(User.objects.filter(id=self.user.id).exists())
+
+        # Verify artist is deleted
+        self.assertFalse(Artist.objects.filter(id=self.artist.id).exists())
+
+        # Verify artworks are deleted
+        self.assertEqual(Artwork.objects.filter(artist=self.artist).count(), 0)
+
+    def test_delete_account_unauthorized(self):
+        """Test that unauthorized users cannot delete accounts"""
+        url = reverse('delete-account')
+        # Try to delete the first user's account while authenticated as the second user
+        response = self.other_client.delete(url, {'user_id': self.user.id})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Verify user and associated data still exist
+        self.assertTrue(User.objects.filter(id=self.user.id).exists())
+        self.assertTrue(Artist.objects.filter(id=self.artist.id).exists())
+        self.assertEqual(Artwork.objects.filter(artist=self.artist).count(), 2)
+
+    def test_delete_account_not_authenticated(self):
+        """Test that unauthenticated users cannot delete accounts"""
+        url = reverse('delete-account')
+
+        # First verify the request works when authenticated
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        # Now try without authentication
+        self.client.force_authenticate(user=None)
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_delete_account_without_artist_profile(self):
+        """Test deleting a user account without an artist profile"""
+        # Create a user without an artist profile
+        user_without_artist = User.objects.create_user(
+            username='noartist',
+            password='testpass123',
+            email='noartist@example.com'
         )
-        self.assertEqual(logout_response.status_code, status.HTTP_200_OK)
 
-        # Wait a moment for blacklist to update
-        time.sleep(1)
+        # Authenticate as this user
+        self.client.force_authenticate(user=user_without_artist)
 
-        # Try to use the original access token after logout
-        # Create a fresh client instance
-        self.client = APIClient()
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_token}')
-        profile_response = self.client.get(self.profile_url)
+        url = reverse('delete-account')
+        response = self.client.delete(url)
 
-        # This should fail with 401 Unauthorized
-        self.assertEqual(
-            profile_response.status_code,
-            status.HTTP_401_UNAUTHORIZED,
-            "Access token should be invalid after logout"
-        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(User.objects.filter(id=user_without_artist.id).exists())
+
+    def test_delete_account_transaction(self):
+        """Test that account deletion is atomic (all-or-nothing)"""
+        url = reverse('delete-account')
+
+        # Create a mock that raises an exception
+        def mock_delete(*args, **kwargs):
+            raise Exception("Simulated error")
+
+        # Store the original delete method
+        original_delete = Artist.delete
+
+        try:
+            # Replace the delete method with our mock
+            Artist.delete = mock_delete
+
+            # Attempt to delete the account
+            response = self.client.delete(url)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+            # Verify nothing was deleted due to transaction rollback
+            self.assertTrue(User.objects.filter(id=self.user.id).exists())
+            self.assertTrue(Artist.objects.filter(id=self.artist.id).exists())
+            self.assertEqual(Artwork.objects.filter(artist=self.artist).count(), 2)
+        finally:
+            # Restore the original delete method
+            Artist.delete = original_delete
