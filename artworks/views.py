@@ -1,12 +1,13 @@
 from rest_framework import generics, viewsets, status, permissions
 from rest_framework.response import Response
-from .models import Artist, Artwork
-from .serializers import ArtistSerializer, ArtworkSerializer
+from .models import Artist, Artwork, Subscription, Notification
+from .serializers import ArtistSerializer, ArtworkSerializer, SubscriptionSerializer, NotificationSerializer
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework.decorators import action, api_view
 from django.http import HttpResponse, FileResponse, Http404
 from django.conf import settings
 import os
+from rest_framework.permissions import IsAuthenticated
 
 
 @extend_schema(
@@ -226,6 +227,97 @@ class ArtistViewSet(viewsets.ModelViewSet):
         kwargs['partial'] = True
         return self.update(request, *args, **kwargs)
 
+    @extend_schema(
+        summary="Subscribe to an artist",
+        description="Subscribe to receive notifications when this artist adds new artwork"
+    )
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def subscribe(self, request, pk=None):
+        artist = self.get_object()
+        user = request.user
+        
+        # Prevent subscribing to your own artist profile
+        if hasattr(user, 'artist') and user.artist == artist:
+            return Response(
+                {"detail": "You cannot subscribe to your own artist profile"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if already subscribed
+        if Subscription.objects.filter(user=user, artist=artist).exists():
+            return Response(
+                {"detail": "You are already subscribed to this artist"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create subscription
+        subscription = Subscription.objects.create(user=user, artist=artist)
+        serializer = SubscriptionSerializer(
+            subscription, context={'request': request}
+        )
+        
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    @extend_schema(
+        summary="Unsubscribe from an artist",
+        description="Unsubscribe from receiving notifications from this artist"
+    )
+    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    def unsubscribe(self, request, pk=None):
+        artist = self.get_object()
+        user = request.user
+        
+        try:
+            subscription = Subscription.objects.get(user=user, artist=artist)
+            subscription.delete()
+            return Response(
+                {"detail": "You have unsubscribed from this artist"}, 
+                status=status.HTTP_200_OK
+            )
+        except Subscription.DoesNotExist:
+            return Response(
+                {"detail": "You are not subscribed to this artist"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Return only notifications for the authenticated user"""
+        return Notification.objects.filter(user=self.request.user)
+    
+    @extend_schema(
+        summary="Mark notification as read",
+        description="Mark a specific notification as read"
+    )
+    @action(detail=True, methods=['post'])
+    def mark_read(self, request, pk=None):
+        notification = self.get_object()
+        notification.is_read = True
+        notification.save()
+        
+        return Response(
+            {"detail": "Notification marked as read"},
+            status=status.HTTP_200_OK
+        )
+    
+    @extend_schema(
+        summary="Mark all notifications as read",
+        description="Mark all of the user's notifications as read"
+    )
+    @action(detail=False, methods=['post'])
+    def mark_all_read(self, request):
+        notifications = self.get_queryset()
+        notifications.update(is_read=True)
+        
+        return Response(
+            {"detail": "All notifications marked as read"},
+            status=status.HTTP_200_OK
+        )
+
 
 class ArtworkViewSet(viewsets.ModelViewSet):
     queryset = Artwork.objects.all()
@@ -280,6 +372,9 @@ class ArtworkViewSet(viewsets.ModelViewSet):
 
             # Update the artist's artwork count
             artist.update_artwork_count()
+            
+            # Create notifications for subscribers
+            self._create_notifications_for_subscribers(artist, artwork)
 
             # Return the created artwork
             return Response(
@@ -297,6 +392,19 @@ class ArtworkViewSet(viewsets.ModelViewSet):
             return Response(
                 {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+    def _create_notifications_for_subscribers(self, artist, artwork):
+        """Create notifications for all subscribers when new artwork is added"""
+        subscriptions = Subscription.objects.filter(artist=artist)
+        
+        for subscription in subscriptions:
+            Notification.objects.create(
+                user=subscription.user,
+                notification_type=Notification.ARTWORK_ADDED,
+                content=f"{artist.name} added new artwork: {artwork.title}",
+                artwork=artwork,
+                artist=artist
             )
 
     @extend_schema(

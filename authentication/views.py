@@ -7,12 +7,13 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
-from artworks.models import Artist, Artwork
-from artworks.serializers import ArtistSerializer
+from artworks.models import Artist, Subscription
+from artworks.serializers import ArtistSerializer, ArtistDetailSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from datetime import timedelta
 from rest_framework_simplejwt.exceptions import TokenError
 from django.db import transaction
+from rest_framework.decorators import action
 
 
 class RegisterView(APIView):
@@ -80,7 +81,9 @@ class ProfileView(APIView):
         user = request.user
         try:
             artist = Artist.objects.get(user=user)
-            artist_data = ArtistSerializer(artist, context={'request': request}).data
+            artist_data = ArtistSerializer(
+                artist, context={'request': request}
+            ).data
             
             return Response({
                 'user': {
@@ -94,6 +97,28 @@ class ProfileView(APIView):
             return Response({
                 'error': 'Artist profile not found'
             }, status=status.HTTP_404_NOT_FOUND)
+
+
+class SubscriptionsView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        summary="Get user subscriptions",
+        description="Get the list of artists the user is subscribed to"
+    )
+    def get(self, request):
+        user = request.user
+        subscriptions = Subscription.objects.filter(user=user)
+        
+        # Get the artist objects from subscriptions
+        subscribed_artists = [sub.artist for sub in subscriptions]
+        
+        # Serialize the artists with detail information
+        serializer = ArtistDetailSerializer(
+            subscribed_artists, many=True, context={'request': request}
+        )
+        
+        return Response(serializer.data)
 
 
 class DeleteAccountView(APIView):

@@ -18,6 +18,12 @@ class Artist(models.Model):
         blank=True
     )
     artwork_count = models.IntegerField(default=0)
+    subscribers = models.ManyToManyField(
+        User,
+        through='Subscription',
+        related_name='subscribed_artists',
+        blank=True
+    )
 
     def __str__(self):
         return self.name
@@ -26,6 +32,67 @@ class Artist(models.Model):
         """Update the artwork count for this artist"""
         self.artwork_count = self.artworks.count()
         self.save(update_fields=['artwork_count'])
+
+
+class Subscription(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='subscriptions'
+    )
+    artist = models.ForeignKey(
+        Artist,
+        on_delete=models.CASCADE,
+        related_name='artist_subscribers'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'artist')
+        verbose_name = 'Subscription'
+        verbose_name_plural = 'Subscriptions'
+
+    def __str__(self):
+        return f"{self.user.username} subscribed to {self.artist.name}"
+
+
+class Notification(models.Model):
+    ARTWORK_ADDED = 'artwork_added'
+    
+    NOTIFICATION_TYPES = [
+        (ARTWORK_ADDED, 'New Artwork Added'),
+    ]
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='notifications'
+    )
+    notification_type = models.CharField(
+        max_length=50,
+        choices=NOTIFICATION_TYPES
+    )
+    content = models.CharField(max_length=255)
+    artwork = models.ForeignKey(
+        'Artwork',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='notifications'
+    )
+    artist = models.ForeignKey(
+        Artist,
+        on_delete=models.CASCADE,
+        related_name='artist_notifications'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Notification for {self.user.username}: {self.content}"
 
 
 class Artwork(models.Model):

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Artist, Artwork
+from .models import Artist, Artwork, Subscription, Notification
 from django.contrib.auth.models import User
 from drf_spectacular.utils import extend_schema_serializer, OpenApiExample
 
@@ -28,44 +28,34 @@ class ArtistSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(write_only=True, required=False)
     artwork_count = serializers.SerializerMethodField()
     profile_picture = serializers.SerializerMethodField()
+    is_subscribed = serializers.SerializerMethodField()
 
     class Meta:
         model = Artist
         fields = [
             'id', 'name', 'bio', 'profile_picture',
-            'user', 'username', 'email', 'artwork_count'
+            'user', 'username', 'email', 'artwork_count', 'is_subscribed'
         ]
 
     def get_artwork_count(self, obj):
         return obj.artworks.count()
 
     def get_profile_picture(self, obj):
-        """
-        Get the full URL for the profile picture.
-        Debug the URL generation process.
-        """
-        if not obj.profile_picture:
-            print(f"No profile picture for artist {obj.id}")
-            return None
-        
-        if not hasattr(obj.profile_picture, 'url'):
-            print(f"Profile picture has no URL attribute: {obj.profile_picture}")
-            return None
-        
-        # Get the relative URL
-        relative_url = obj.profile_picture.url
-        print(f"Relative URL: {relative_url}")
-        
-        # Build absolute URL if request is available
+        if obj.profile_picture and hasattr(obj.profile_picture, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.profile_picture.url)
+            return obj.profile_picture.url
+        return None
+
+    def get_is_subscribed(self, obj):
         request = self.context.get('request')
-        if not request:
-            print(f"No request in context, returning relative URL: {relative_url}")
-            return relative_url
-        
-        # Build the absolute URL
-        absolute_url = request.build_absolute_uri(relative_url)
-        print(f"Built absolute URL: {absolute_url}")
-        return absolute_url
+        if request and request.user.is_authenticated:
+            return Subscription.objects.filter(
+                user=request.user,
+                artist=obj
+            ).exists()
+        return False
 
     def create(self, validated_data):
         request = self.context.get('request')
@@ -108,6 +98,32 @@ class ArtistSerializer(serializers.ModelSerializer):
         validated_data.pop('username', None)
         validated_data.pop('email', None)
         return super().update(instance, validated_data)
+
+
+class ArtistDetailSerializer(serializers.ModelSerializer):
+    """
+    Detailed serializer for Artist model including artwork count
+    Used for subscription lists and artist details
+    """
+    artwork_count = serializers.SerializerMethodField()
+    profile_picture = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Artist
+        fields = ['id', 'name', 'bio', 'profile_picture', 'artwork_count']
+    
+    def get_artwork_count(self, obj):
+        return obj.artworks.count()
+    
+    def get_profile_picture(self, obj):
+        if obj.profile_picture and hasattr(obj.profile_picture, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(
+                    obj.profile_picture.url
+                )
+            return obj.profile_picture.url
+        return None
 
 
 @extend_schema_serializer(
@@ -159,3 +175,39 @@ class ArtworkSerializer(serializers.ModelSerializer):
                 validated_data['image_url'] = image_url
 
         return super().create(validated_data)
+
+
+class SubscriptionSerializer(serializers.ModelSerializer):
+    artist_name = serializers.ReadOnlyField(source='artist.name')
+    artist_profile_picture = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Subscription
+        fields = ['id', 'artist', 'artist_name', 'artist_profile_picture', 'created_at']
+        read_only_fields = ['created_at']
+    
+    def get_artist_profile_picture(self, obj):
+        if obj.artist.profile_picture and hasattr(obj.artist.profile_picture, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.artist.profile_picture.url)
+            return obj.artist.profile_picture.url
+        return None
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    artist_name = serializers.ReadOnlyField(source='artist.name')
+    artwork_title = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Notification
+        fields = [
+            'id', 'notification_type', 'content', 'artist', 'artist_name',
+            'artwork', 'artwork_title', 'created_at', 'is_read'
+        ]
+        read_only_fields = ['created_at']
+    
+    def get_artwork_title(self, obj):
+        if obj.artwork:
+            return obj.artwork.title
+        return None

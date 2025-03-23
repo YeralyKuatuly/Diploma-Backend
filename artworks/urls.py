@@ -1,10 +1,11 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import ArtistViewSet, ArtworkViewSet, debug_media, debug_request, debug_media_file
+from .views import ArtistViewSet, ArtworkViewSet, NotificationViewSet, debug_media, debug_request, debug_media_file
 
 router = DefaultRouter()
 router.register(r'artists', ArtistViewSet)
 router.register(r'artworks', ArtworkViewSet)
+router.register(r'notifications', NotificationViewSet, basename='notification')
 
 urlpatterns = [
     path('', include(router.urls)),
