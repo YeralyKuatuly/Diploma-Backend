@@ -14,6 +14,20 @@ from datetime import timedelta
 from rest_framework_simplejwt.exceptions import TokenError
 from django.db import transaction
 from rest_framework.decorators import action
+from django_ratelimit.decorators import ratelimit
+from django.utils.decorators import method_decorator
+
+
+class RateLimitedTokenObtainPairView(TokenObtainPairView):
+    @method_decorator(ratelimit(key='ip', rate='5/m', method=['POST']))
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
+
+
+class RateLimitedTokenRefreshView(TokenRefreshView):
+    @method_decorator(ratelimit(key='ip', rate='5/m', method=['POST']))
+    def post(self, request, *args, **kwargs):
+        return super().post(request, *args, **kwargs)
 
 
 class RegisterView(APIView):
@@ -23,6 +37,7 @@ class RegisterView(APIView):
         summary="Register new user",
         description="Register a new user and create their artist profile"
     )
+    @method_decorator(ratelimit(key='ip', rate='3/h', method=['POST']))
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
@@ -41,6 +56,7 @@ class LogoutView(APIView):
         summary="Logout user",
         description="Blacklist the refresh token"
     )
+    @method_decorator(ratelimit(key='ip', rate='5/m', method=['POST']))
     def post(self, request):
         try:
             refresh_token = request.data.get('refresh_token')
@@ -77,6 +93,7 @@ class ProfileView(APIView):
         summary="Get user profile",
         description="Get the current user's profile information including their artist profile"
     )
+    @method_decorator(ratelimit(key='ip', rate='30/m', method=['GET']))
     def get(self, request):
         user = request.user
         try:
@@ -106,6 +123,7 @@ class SubscriptionsView(APIView):
         summary="Get user subscriptions",
         description="Get the list of artists the user is subscribed to"
     )
+    @method_decorator(ratelimit(key='ip', rate='30/m', method=['GET']))
     def get(self, request):
         user = request.user
         subscriptions = Subscription.objects.filter(user=user)
@@ -128,6 +146,7 @@ class DeleteAccountView(APIView):
         summary="Delete user account",
         description="Delete the current user's account and all associated data"
     )
+    @method_decorator(ratelimit(key='ip', rate='3/h', method=['DELETE']))
     @transaction.atomic
     def delete(self, request):
         try:
