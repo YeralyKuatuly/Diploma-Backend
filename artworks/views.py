@@ -1,13 +1,18 @@
 from rest_framework import generics, viewsets, status, permissions
 from rest_framework.response import Response
-from .models import Artist, Artwork, Subscription, Notification
-from .serializers import ArtistSerializer, ArtworkSerializer, SubscriptionSerializer, NotificationSerializer
+from .models import Artist, Artwork, Subscription, Notification, Cart, CartItem, Order, OrderItem
+from .serializers import (
+    ArtistSerializer, ArtistDetailSerializer, ArtworkSerializer,
+    SubscriptionSerializer, NotificationSerializer, CartSerializer,
+    CartItemSerializer, OrderSerializer, OrderItemSerializer
+)
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework.decorators import action, api_view
 from django.http import HttpResponse, FileResponse, Http404
 from django.conf import settings
 import os
 from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
 
 
 @extend_schema(
@@ -272,7 +277,7 @@ class ArtistViewSet(viewsets.ModelViewSet):
             subscription.delete()
             return Response(
                 {"detail": "You have unsubscribed from this artist"}, 
-                status=status.HTTP_200_OK
+                status=status.HTTP_204_NO_CONTENT
             )
         except Subscription.DoesNotExist:
             return Response(
@@ -368,7 +373,7 @@ class ArtworkViewSet(viewsets.ModelViewSet):
             serializer.is_valid(raise_exception=True)
 
             # Save the artwork
-            artwork = serializer.save(artist=artist)
+            artwork = serializer.save()
 
             # Update the artist's artwork count
             artist.update_artwork_count()
@@ -521,3 +526,125 @@ def debug_media_file(request, path):
         return FileResponse(open(file_path, 'rb'))
     else:
         raise Http404(f"File not found: {file_path}")
+
+
+class SubscriptionViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = SubscriptionSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Subscription.objects.filter(user=self.request.user)
+
+
+class CartViewSet(viewsets.ModelViewSet):
+    serializer_class = CartSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Cart.objects.filter(user=self.request.user)
+
+    def get_object(self):
+        cart, created = Cart.objects.get_or_create(user=self.request.user)
+        return cart
+
+    @action(detail=True, methods=['post'])
+    def add_item(self, request, pk=None):
+        cart = self.get_object()
+        artwork_id = request.data.get('artwork_id')
+        quantity = int(request.data.get('quantity', 1))
+
+        artwork = get_object_or_404(Artwork, id=artwork_id)
+        if not artwork.is_available:
+            return Response(
+                {'detail': 'Artwork is not available'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        cart_item, created = CartItem.objects.get_or_create(
+            cart=cart,
+            artwork=artwork,
+            defaults={'quantity': quantity}
+        )
+
+        if not created:
+            cart_item.quantity += quantity
+            cart_item.save()
+
+        return Response(CartSerializer(cart).data)
+
+    @action(detail=True, methods=['post'])
+    def remove_item(self, request, pk=None):
+        cart = self.get_object()
+        artwork_id = request.data.get('artwork_id')
+        quantity = int(request.data.get('quantity', 1))
+
+        try:
+            cart_item = CartItem.objects.get(cart=cart, artwork_id=artwork_id)
+            if cart_item.quantity <= quantity:
+                cart_item.delete()
+            else:
+                cart_item.quantity -= quantity
+                cart_item.save()
+        except CartItem.DoesNotExist:
+            return Response(
+                {'detail': 'Item not found in cart'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        return Response(CartSerializer(cart).data)
+
+    @action(detail=True, methods=['post'])
+    def clear(self, request, pk=None):
+        cart = self.get_object()
+        cart.items.all().delete()
+        return Response({'detail': 'Cart cleared successfully'})
+
+
+class OrderViewSet(viewsets.ModelViewSet):
+    serializer_class = OrderSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return Order.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        cart = Cart.objects.filter(user=request.user).first()
+        if not cart or not cart.items.exists():
+            return Response(
+                {'detail': 'Cart is empty'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create order
+        order = Order.objects.create(
+            user=request.user,
+            total_amount=cart.total_price,
+            shipping_address=request.data.get('shipping_address'),
+            status='pending'
+        )
+
+        # Create order items
+        for cart_item in cart.items.all():
+            OrderItem.objects.create(
+                order=order,
+                artwork=cart_item.artwork,
+                price=cart_item.artwork.price,
+                quantity=cart_item.quantity
+            )
+
+        # Clear cart
+        cart.items.all().delete()
+
+        return Response(OrderSerializer(order).data)
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        order = self.get_object()
+        if order.status != 'pending':
+            return Response(
+                {'detail': 'Only pending orders can be cancelled'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        order.status = 'cancelled'
+        order.save()
+        return Response(OrderSerializer(order).data)

@@ -45,7 +45,8 @@ INSTALLED_APPS = [
     'artworks',
     'authentication',
     'drf_spectacular',
-    'django_ratelimit',
+    'django_extensions',
+    # 'django_ratelimit',
 ]
 
 MIDDLEWARE = [
@@ -57,7 +58,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'django_ratelimit.middleware.RatelimitMiddleware',
+    # 'django_ratelimit.middleware.RatelimitMiddleware',
 ]
 
 AUTHENTICATION_BACKENDS = [
@@ -207,27 +208,27 @@ SPECTACULAR_SETTINGS = {
 }
 
 # Rate limiting settings
-RATELIMIT_ENABLE = True
-RATELIMIT_USE_CACHE = 'default'
-RATELIMIT_VIEW = 'django_ratelimit.views.ratelimited'
+# RATELIMIT_ENABLE = False
+# RATELIMIT_USE_CACHE = 'default'
+# RATELIMIT_VIEW = 'django_ratelimit.views.ratelimited'
 
 # Rate limits for different endpoints
-RATELIMIT_VIEWS = {
-    'authentication:login': '5/m',  # 5 attempts per minute
-    'authentication:register': '3/h',  # 3 attempts per hour
-    'authentication:password_reset': '3/h',  # 3 attempts per hour
-}
+# RATELIMIT_VIEWS = {
+#     'authentication:login': '5/m',  # 5 attempts per minute
+#     'authentication:register': '3/h',  # 3 attempts per hour
+#     'authentication:password_reset': '3/h',  # 3 attempts per hour
+# }
 
 # Rate limit key function
-RATELIMIT_KEY = 'ip'  # Use IP address as the key for rate limiting
+# RATELIMIT_KEY = 'ip'  # Use IP address as the key for rate limiting
 
 # Rate limit block message
-RATELIMIT_BLOCK_MESSAGE = 'Too many attempts. Please try again later.'
+# RATELIMIT_BLOCK_MESSAGE = 'Too many attempts. Please try again later.'
 
 # Cache settings for rate limiting
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'unique-snowflake',
-    }
-}
+# CACHES = {
+#     'default': {
+#         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+#         'LOCATION': 'unique-snowflake',
+#     }
+# }

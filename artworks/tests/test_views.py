@@ -2,7 +2,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 from django.contrib.auth.models import User
-from artworks.models import Artist, Artwork, Subscription, Notification
+from artworks.models import Artwork, Subscription, Notification
 from django.core.files.uploadedfile import SimpleUploadedFile
 import os
 
@@ -16,12 +16,10 @@ class ArtworkViewsTest(APITestCase):
             email='test@example.com'
         )
 
-        # Create test artist
-        self.artist = Artist.objects.create(
-            user=self.user,
-            name='Test Artist',
-            bio='Test bio'
-        )
+        # Get artist created by signal
+        self.artist = self.user.artist_profile
+        self.artist.bio = 'Test bio'
+        self.artist.save()
 
         # Create another user and artist for testing permissions
         self.other_user = User.objects.create_user(
@@ -29,11 +27,11 @@ class ArtworkViewsTest(APITestCase):
             password='testpass123',
             email='other@example.com'
         )
-        self.other_artist = Artist.objects.create(
-            user=self.other_user,
-            name='Other Artist',
-            bio='Other bio'
-        )
+        
+        # Get artist created by signal
+        self.other_artist = self.other_user.artist_profile
+        self.other_artist.bio = 'Other bio'
+        self.other_artist.save()
 
         # Create test artwork
         self.artwork = Artwork.objects.create(
@@ -211,12 +209,12 @@ class ArtworkViewsTest(APITestCase):
         
         # Get the created artwork
         created_artwork = Artwork.objects.get(title='Artwork with Image')
-        self.assertIsNotNone(created_artwork.image_file)
+        self.assertIsNotNone(created_artwork.image)
 
         # Clean up the test image file if it exists
-        if (created_artwork.image_file and 
-                os.path.exists(created_artwork.image_file.path)):
-            os.remove(created_artwork.image_file.path)
+        if (created_artwork.image and 
+                os.path.exists(created_artwork.image.path)):
+            os.remove(created_artwork.image.path)
 
     def test_artwork_count_update(self):
         """Test artist's artwork count updates on create/delete"""
@@ -262,11 +260,11 @@ class SubscriptionTest(APITestCase):
             password='testpass123',
             email='artist@example.com'
         )
-        self.artist = Artist.objects.create(
-            user=self.artist_user,
-            name='Test Artist',
-            bio='Test bio'
-        )
+        
+        # Get artist created by signal
+        self.artist = self.artist_user.artist_profile
+        self.artist.bio = 'Test bio'
+        self.artist.save()
 
         # Create client and authenticate
         self.client = APIClient()
@@ -337,11 +335,11 @@ class NotificationTest(APITestCase):
             password='testpass123',
             email='artist@example.com'
         )
-        self.artist = Artist.objects.create(
-            user=self.artist_user,
-            name='Test Artist',
-            bio='Test bio'
-        )
+        
+        # Get artist created by signal
+        self.artist = self.artist_user.artist_profile
+        self.artist.bio = 'Test bio'
+        self.artist.save()
 
         # Create subscription
         Subscription.objects.create(user=self.user, artist=self.artist)

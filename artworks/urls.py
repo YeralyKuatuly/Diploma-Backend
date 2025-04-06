@@ -1,11 +1,17 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import ArtistViewSet, ArtworkViewSet, NotificationViewSet, debug_media, debug_request, debug_media_file
+from .views import (
+    ArtistViewSet, ArtworkViewSet, SubscriptionViewSet,
+    NotificationViewSet, CartViewSet, OrderViewSet, debug_media, debug_request, debug_media_file
+)
 
 router = DefaultRouter()
 router.register(r'artists', ArtistViewSet)
 router.register(r'artworks', ArtworkViewSet)
+router.register(r'subscriptions', SubscriptionViewSet, basename='subscription')
 router.register(r'notifications', NotificationViewSet, basename='notification')
+router.register(r'cart', CartViewSet, basename='cart')
+router.register(r'orders', OrderViewSet, basename='order')
 
 urlpatterns = [
     path('', include(router.urls)),
