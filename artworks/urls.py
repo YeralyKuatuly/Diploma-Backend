@@ -1,9 +1,10 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    ArtistViewSet, ArtworkViewSet, SubscriptionViewSet,
-    NotificationViewSet, CartViewSet, OrderViewSet, debug_media, debug_request, debug_media_file
+    ArtistViewSet, ArtworkViewSet, CartViewSet,
+    NotificationViewSet, debug_media, debug_request, debug_media_file
 )
+from .views import SubscriptionViewSet, OrderViewSet
 
 router = DefaultRouter()
 router.register(r'artists', ArtistViewSet)

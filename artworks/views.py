@@ -1,18 +1,13 @@
 from rest_framework import generics, viewsets, status, permissions
 from rest_framework.response import Response
 from .models import Artist, Artwork, Subscription, Notification, Cart, CartItem, Order, OrderItem
-from .serializers import (
-    ArtistSerializer, ArtistDetailSerializer, ArtworkSerializer,
-    SubscriptionSerializer, NotificationSerializer, CartSerializer,
-    CartItemSerializer, OrderSerializer, OrderItemSerializer
-)
+from .serializers import ArtistSerializer, ArtworkSerializer, SubscriptionSerializer, NotificationSerializer, CartSerializer, OrderSerializer
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework.decorators import action, api_view
 from django.http import HttpResponse, FileResponse, Http404
 from django.conf import settings
 import os
 from rest_framework.permissions import IsAuthenticated
-from django.shortcuts import get_object_or_404
 
 
 @extend_schema(
@@ -277,7 +272,7 @@ class ArtistViewSet(viewsets.ModelViewSet):
             subscription.delete()
             return Response(
                 {"detail": "You have unsubscribed from this artist"}, 
-                status=status.HTTP_204_NO_CONTENT
+                status=status.HTTP_200_OK
             )
         except Subscription.DoesNotExist:
             return Response(
@@ -373,7 +368,7 @@ class ArtworkViewSet(viewsets.ModelViewSet):
             serializer.is_valid(raise_exception=True)
 
             # Save the artwork
-            artwork = serializer.save()
+            artwork = serializer.save(artist=artist)
 
             # Update the artist's artwork count
             artist.update_artwork_count()
@@ -528,123 +523,376 @@ def debug_media_file(request, path):
         raise Http404(f"File not found: {file_path}")
 
 
-class SubscriptionViewSet(viewsets.ReadOnlyModelViewSet):
-    serializer_class = SubscriptionSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return Subscription.objects.filter(user=self.request.user)
-
-
-class CartViewSet(viewsets.ModelViewSet):
+class CartViewSet(viewsets.ViewSet):
+    """
+    ViewSet for shopping cart operations
+    """
+    permission_classes = [IsAuthenticated]
     serializer_class = CartSerializer
-    permission_classes = [permissions.IsAuthenticated]
 
-    def get_queryset(self):
-        return Cart.objects.filter(user=self.request.user)
+    def get_cart(self, request):
+        """Helper method to get or create a cart for the current user"""
+        try:
+            cart, created = Cart.objects.get_or_create(user=request.user)
+            return cart
+        except Exception as e:
+            print(f"Error getting cart: {str(e)}")
+            raise
 
-    def get_object(self):
-        cart, created = Cart.objects.get_or_create(user=self.request.user)
-        return cart
+    @extend_schema(
+        summary="Get current user's cart",
+        description="Retrieve the cart for the current user"
+    )
+    @action(detail=False, methods=['get'], url_path='me')
+    def me(self, request):
+        cart = self.get_cart(request)
+        serializer = CartSerializer(cart, context={'request': request})
+        return Response(serializer.data)
 
-    @action(detail=True, methods=['post'])
-    def add_item(self, request, pk=None):
-        cart = self.get_object()
+    @extend_schema(
+        summary="Add item to cart",
+        description="Add an artwork to the user's cart"
+    )
+    @action(detail=False, methods=['post'], url_path='add_item')
+    def add_item(self, request):
         artwork_id = request.data.get('artwork_id')
         quantity = int(request.data.get('quantity', 1))
-
-        artwork = get_object_or_404(Artwork, id=artwork_id)
-        if not artwork.is_available:
+        
+        # Debug log to see what data is being received
+        print(f"Add item request data: {request.data}")
+        
+        if not artwork_id:
             return Response(
-                {'detail': 'Artwork is not available'},
+                {"detail": "artwork_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            # Convert artwork_id to int if it's a string
+            try:
+                artwork_id = int(artwork_id)
+            except (ValueError, TypeError):
+                return Response(
+                    {"detail": f"Invalid artwork_id format: {artwork_id}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            # Get the artwork
+            try:
+                artwork = Artwork.objects.get(id=artwork_id)
+            except Artwork.DoesNotExist:
+                return Response(
+                    {"detail": f"Artwork with ID {artwork_id} not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Check if artwork is available
+            if not artwork.is_available:
+                return Response(
+                    {"detail": "This artwork is not available for purchase"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get or create the cart
+            cart = self.get_cart(request)
+            
+            # Check if item already in cart
+            cart_item, created = CartItem.objects.get_or_create(
+                cart=cart,
+                artwork=artwork,
+                defaults={'quantity': quantity}
+            )
+            
+            if not created:
+                # Update quantity if item already exists
+                cart_item.quantity = quantity
+                cart_item.save()
+                
+            serializer = CartSerializer(cart, context={'request': request})
+            return Response(serializer.data)
+            
+        except Exception as e:
+            print(f"Error in add_item: {str(e)}")
+            return Response(
+                {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        cart_item, created = CartItem.objects.get_or_create(
-            cart=cart,
-            artwork=artwork,
-            defaults={'quantity': quantity}
-        )
-
-        if not created:
-            cart_item.quantity += quantity
-            cart_item.save()
-
-        return Response(CartSerializer(cart).data)
-
-    @action(detail=True, methods=['post'])
-    def remove_item(self, request, pk=None):
-        cart = self.get_object()
+    @extend_schema(
+        summary="Remove item from cart",
+        description="Remove an artwork from the user's cart"
+    )
+    @action(detail=False, methods=['post'], url_path='remove_item')
+    def remove_item(self, request):
         artwork_id = request.data.get('artwork_id')
         quantity = int(request.data.get('quantity', 1))
-
-        try:
-            cart_item = CartItem.objects.get(cart=cart, artwork_id=artwork_id)
-            if cart_item.quantity <= quantity:
-                cart_item.delete()
-            else:
-                cart_item.quantity -= quantity
-                cart_item.save()
-        except CartItem.DoesNotExist:
+        
+        # Debug log
+        print(f"Remove item request data: {request.data}")
+        
+        if not artwork_id:
             return Response(
-                {'detail': 'Item not found in cart'},
-                status=status.HTTP_404_NOT_FOUND
+                {"detail": "artwork_id is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            # Convert artwork_id to int if it's a string
+            try:
+                artwork_id = int(artwork_id)
+            except (ValueError, TypeError):
+                return Response(
+                    {"detail": f"Invalid artwork_id format: {artwork_id}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+            # Get the cart
+            cart = self.get_cart(request)
+            
+            # Find cart item
+            try:
+                cart_item = CartItem.objects.get(cart=cart, artwork_id=artwork_id)
+                
+                # If quantity is greater than or equal to current quantity, delete the item
+                if quantity >= cart_item.quantity:
+                    cart_item.delete()
+                else:
+                    # Otherwise reduce the quantity
+                    cart_item.quantity -= quantity
+                    cart_item.save()
+                    
+                serializer = CartSerializer(cart, context={'request': request})
+                return Response(serializer.data)
+                
+            except CartItem.DoesNotExist:
+                return Response(
+                    {"detail": "This item is not in your cart"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+        except Exception as e:
+            print(f"Error in remove_item: {str(e)}")
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        return Response(CartSerializer(cart).data)
+    @extend_schema(
+        summary="Clear cart",
+        description="Remove all items from the user's cart"
+    )
+    @action(detail=False, methods=['post'], url_path='clear')
+    def clear_cart(self, request):
+        try:
+            # Get the cart
+            cart = self.get_cart(request)
+            
+            # Delete all items
+            count = cart.items.count()
+            cart.items.all().delete()
+            
+            print(f"Cleared {count} items from cart")
+            
+            serializer = CartSerializer(cart, context={'request': request})
+            return Response({
+                "detail": f"Successfully removed {count} items from your cart",
+                "cart": serializer.data
+            })
+            
+        except Exception as e:
+            print(f"Error in clear_cart: {str(e)}")
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    @action(detail=True, methods=['post'])
-    def clear(self, request, pk=None):
-        cart = self.get_object()
-        cart.items.all().delete()
-        return Response({'detail': 'Cart cleared successfully'})
+
+class SubscriptionViewSet(viewsets.ModelViewSet):
+    serializer_class = SubscriptionSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Return only subscriptions for the authenticated user"""
+        return Subscription.objects.filter(user=self.request.user)
+    
+    @extend_schema(
+        summary="List user subscriptions",
+        description="Get all artists that the current user is subscribed to"
+    )
+    def list(self, request):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @extend_schema(
+        summary="Get subscription details",
+        description="Get details of a specific subscription"
+    )
+    def retrieve(self, request, pk=None):
+        return super().retrieve(request, pk)
+    
+    @extend_schema(
+        summary="Create subscription",
+        description="Create a new subscription to an artist"
+    )
+    def create(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        # Check if already subscribed
+        artist_id = serializer.validated_data.get('artist').id
+        if Subscription.objects.filter(
+            user=request.user, 
+            artist_id=artist_id
+        ).exists():
+            return Response(
+                {"detail": "You are already subscribed to this artist"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        serializer.save(user=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    @extend_schema(
+        summary="Delete subscription",
+        description="Unsubscribe from an artist"
+    )
+    def destroy(self, request, pk=None):
+        instance = self.get_object()
+        
+        # Ensure user can only delete their own subscriptions
+        if instance.user != request.user:
+            return Response(
+                {"detail": "You do not have permission to delete this subscription"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        self.perform_destroy(instance)
+        return Response(
+            {"detail": "Successfully unsubscribed"},
+            status=status.HTTP_204_NO_CONTENT
+        )
 
 
 class OrderViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing orders
+    """
     serializer_class = OrderSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
+    permission_classes = [IsAuthenticated]
+    
     def get_queryset(self):
-        return Order.objects.filter(user=self.request.user)
-
-    def create(self, request, *args, **kwargs):
-        cart = Cart.objects.filter(user=request.user).first()
-        if not cart or not cart.items.exists():
+        """Return only orders for the authenticated user"""
+        return Order.objects.filter(user=self.request.user).order_by('-created_at')
+    
+    @extend_schema(
+        summary="List user orders",
+        description="Get all orders for the current user"
+    )
+    def list(self, request):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    @extend_schema(
+        summary="Get order details",
+        description="Get details of a specific order"
+    )
+    def retrieve(self, request, pk=None):
+        try:
+            order = self.get_object()
+            serializer = self.get_serializer(order)
+            return Response(serializer.data)
+        except Order.DoesNotExist:
             return Response(
-                {'detail': 'Cart is empty'},
+                {"detail": "Order not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @extend_schema(
+        summary="Create an order",
+        description="Create a new order from the items in the user's cart"
+    )
+    def create(self, request):
+        try:
+            # Get the cart
+            cart, created = Cart.objects.get_or_create(user=request.user)
+            
+            # Check if cart is empty
+            if not cart.items.exists():
+                return Response(
+                    {"detail": "Your cart is empty"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get shipping address from request
+            shipping_address = request.data.get('shipping_address')
+            if not shipping_address:
+                return Response(
+                    {"detail": "Shipping address is required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Calculate total amount
+            total_amount = sum(item.total_price for item in cart.items.all())
+            
+            # Create order
+            order = Order.objects.create(
+                user=request.user,
+                shipping_address=shipping_address,
+                total_amount=total_amount
+            )
+            
+            # Create order items
+            for cart_item in cart.items.all():
+                OrderItem.objects.create(
+                    order=order,
+                    artwork=cart_item.artwork,
+                    price=cart_item.artwork.price,
+                    quantity=cart_item.quantity
+                )
+            
+            # Clear the cart
+            cart.items.all().delete()
+            
+            serializer = self.get_serializer(order)
+            return Response(
+                serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+            
+        except Exception as e:
+            print(f"Error creating order: {str(e)}")
+            return Response(
+                {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        # Create order
-        order = Order.objects.create(
-            user=request.user,
-            total_amount=cart.total_price,
-            shipping_address=request.data.get('shipping_address'),
-            status='pending'
-        )
-
-        # Create order items
-        for cart_item in cart.items.all():
-            OrderItem.objects.create(
-                order=order,
-                artwork=cart_item.artwork,
-                price=cart_item.artwork.price,
-                quantity=cart_item.quantity
-            )
-
-        # Clear cart
-        cart.items.all().delete()
-
-        return Response(OrderSerializer(order).data)
-
-    @action(detail=True, methods=['post'])
-    def cancel(self, request, pk=None):
-        order = self.get_object()
-        if order.status != 'pending':
+    
+    @extend_schema(
+        summary="Cancel an order",
+        description="Cancel a pending order"
+    )
+    @action(detail=True, methods=['post'], url_path='cancel')
+    def cancel_order(self, request, pk=None):
+        try:
+            order = self.get_object()
+            
+            # Check if order can be cancelled
+            if order.status != 'pending':
+                return Response(
+                    {"detail": f"Cannot cancel order in {order.status} status"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Update order status
+            order.status = 'cancelled'
+            order.save()
+            
+            serializer = self.get_serializer(order)
+            return Response(serializer.data)
+            
+        except Exception as e:
             return Response(
-                {'detail': 'Only pending orders can be cancelled'},
+                {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        order.status = 'cancelled'
-        order.save()
-        return Response(OrderSerializer(order).data)
