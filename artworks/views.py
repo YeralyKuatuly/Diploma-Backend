@@ -1,13 +1,21 @@
 from rest_framework import generics, viewsets, status, permissions
 from rest_framework.response import Response
-from .models import Artist, Artwork, Subscription, Notification, Cart, CartItem, Order, OrderItem
-from .serializers import ArtistSerializer, ArtworkSerializer, SubscriptionSerializer, NotificationSerializer, CartSerializer, OrderSerializer
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from .models import (
+    Artist, Artwork, Subscription, Notification, Cart, CartItem, Order, OrderItem
+)
+from .serializers import (
+    ArtistSerializer, ArtworkSerializer, SubscriptionSerializer,
+    NotificationSerializer, CartSerializer, OrderSerializer
+)
+from drf_spectacular.utils import (
+    extend_schema, OpenApiParameter, OpenApiResponse
+)
 from rest_framework.decorators import action, api_view
 from django.http import HttpResponse, FileResponse, Http404
 from django.conf import settings
 import os
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.serializers import Serializer, CharField, DictField
 
 
 @extend_schema(
@@ -189,7 +197,8 @@ class ArtistViewSet(viewsets.ModelViewSet):
             )
 
         # Print debug information
-        print(f"Request data: {request.data}")
+        data_str = str(request.data)
+        print(f"Request data received: {data_str}")
         print(f"Request FILES: {request.FILES}")
 
         # Handle profile picture upload
@@ -318,6 +327,20 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             status=status.HTTP_200_OK
         )
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='id',
+                type=int,
+                location=OpenApiParameter.PATH,
+                description='Notification ID'
+            )
+        ],
+        responses={200: NotificationSerializer}
+    )
+    def retrieve(self, request, pk: int, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
 
 class ArtworkViewSet(viewsets.ModelViewSet):
     queryset = Artwork.objects.all()
@@ -337,62 +360,37 @@ class ArtworkViewSet(viewsets.ModelViewSet):
         description="Create a new artwork for the authenticated artist"
     )
     def create(self, request, *args, **kwargs):
-        """
-        Create a new artwork with better error handling
-        """
-        # Print debug information
-        print(f"Request data: {request.data}")
-        print(f"Request FILES: {request.FILES}")
-
-        # Check if artist_id is provided
-        artist_id = request.data.get('artist_id')
-        if not artist_id:
-            return Response(
-                {"detail": "artist_id is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
+        # Get the artist associated with the current user
         try:
-            # Get the artist
-            artist = Artist.objects.get(id=artist_id)
-
-            # Check if the user is the owner of this artist profile
-            if artist.user != request.user:
-                return Response(
-                    {"detail": "You can only create artworks for your own artist profile."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-
-            # Create serializer with context
-            serializer = self.get_serializer(data=request.data, context={'request': request})
-            serializer.is_valid(raise_exception=True)
-
-            # Save the artwork
-            artwork = serializer.save(artist=artist)
-
-            # Update the artist's artwork count
-            artist.update_artwork_count()
-            
-            # Create notifications for subscribers
-            self._create_notifications_for_subscribers(artist, artwork)
-
-            # Return the created artwork
-            return Response(
-                self.get_serializer(artwork, context={'request': request}).data,
-                status=status.HTTP_201_CREATED
-            )
-
+            artist = Artist.objects.get(user=request.user)
         except Artist.DoesNotExist:
             return Response(
-                {"detail": f"Artist with ID {artist_id} not found"},
-                status=status.HTTP_404_NOT_FOUND
+                {"error": "You must be registered as an artist to add artwork"},
+                status=status.HTTP_403_FORBIDDEN
             )
-        except Exception as e:
-            print(f"Error creating artwork: {str(e)}")
-            return Response(
-                {"detail": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+
+        # Print debug information
+        print(f"Request data received: {request.data}")
+        print(f"Request FILES: {request.FILES}")
+
+        # Create serializer with context
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        # Save the artwork
+        artwork = serializer.save(artist=artist)
+
+        # Update the artist's artwork count
+        artist.update_artwork_count()
+        
+        # Create notifications for subscribers
+        self._create_notifications_for_subscribers(artist, artwork)
+
+        # Return the created artwork
+        return Response(
+            self.get_serializer(artwork, context={'request': request}).data,
+            status=status.HTTP_201_CREATED
+        )
 
     def _create_notifications_for_subscribers(self, artist, artwork):
         """Create notifications for all subscribers when new artwork is added"""
@@ -498,18 +496,35 @@ def debug_media(request):
     return HttpResponse(response)
 
 
+class DebugRequestSerializer(Serializer):
+    method = CharField()
+    data = DictField()
+    files = DictField()
+    headers = DictField()
+    user = CharField()
+    auth = CharField()
+
 @api_view(['POST'])
+@extend_schema(
+    request=None,
+    responses={200: DebugRequestSerializer}
+)
 def debug_request(request):
     """Debug view to check request data"""
     data = {
         'method': request.method,
         'data': request.data,
-        'files': {k: f"{v.name} ({v.content_type}, {v.size} bytes)" for k, v in request.FILES.items()},
+        'files': {
+            k: f"{v.name} ({v.content_type}, {v.size} bytes)"
+            for k, v in request.FILES.items()
+        },
         'headers': {k: v for k, v in request.headers.items()},
         'user': str(request.user),
         'auth': str(request.auth),
     }
-    return Response(data)
+    serializer = DebugRequestSerializer(data=data)
+    serializer.is_valid(raise_exception=True)
+    return Response(serializer.data)
 
 
 def debug_media_file(request, path):
@@ -556,7 +571,6 @@ class CartViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'], url_path='add_item')
     def add_item(self, request):
         artwork_id = request.data.get('artwork_id')
-        quantity = int(request.data.get('quantity', 1))
         
         # Debug log to see what data is being received
         print(f"Add item request data: {request.data}")
@@ -597,16 +611,18 @@ class CartViewSet(viewsets.ViewSet):
             cart = self.get_cart(request)
             
             # Check if item already in cart
-            cart_item, created = CartItem.objects.get_or_create(
+            if CartItem.objects.filter(cart=cart, artwork=artwork).exists():
+                return Response(
+                    {"detail": "This artwork is already in your cart"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Always add with quantity = 1
+            cart_item = CartItem.objects.create(
                 cart=cart,
                 artwork=artwork,
-                defaults={'quantity': quantity}
+                quantity=1
             )
-            
-            if not created:
-                # Update quantity if item already exists
-                cart_item.quantity = quantity
-                cart_item.save()
                 
             serializer = CartSerializer(cart, context={'request': request})
             return Response(serializer.data)
@@ -625,7 +641,6 @@ class CartViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'], url_path='remove_item')
     def remove_item(self, request):
         artwork_id = request.data.get('artwork_id')
-        quantity = int(request.data.get('quantity', 1))
         
         # Debug log
         print(f"Remove item request data: {request.data}")
@@ -653,13 +668,8 @@ class CartViewSet(viewsets.ViewSet):
             try:
                 cart_item = CartItem.objects.get(cart=cart, artwork_id=artwork_id)
                 
-                # If quantity is greater than or equal to current quantity, delete the item
-                if quantity >= cart_item.quantity:
-                    cart_item.delete()
-                else:
-                    # Otherwise reduce the quantity
-                    cart_item.quantity -= quantity
-                    cart_item.save()
+                # Always delete the item, regardless of quantity
+                cart_item.delete()
                     
                 serializer = CartSerializer(cart, context={'request': request})
                 return Response(serializer.data)
@@ -708,12 +718,16 @@ class CartViewSet(viewsets.ViewSet):
 
 
 class SubscriptionViewSet(viewsets.ModelViewSet):
+    queryset = Subscription.objects.all()
     serializer_class = SubscriptionSerializer
     permission_classes = [IsAuthenticated]
     
-    def get_queryset(self):
-        """Return only subscriptions for the authenticated user"""
-        return Subscription.objects.filter(user=self.request.user)
+    @extend_schema(
+        parameters=[OpenApiParameter(name='id', type=int, location=OpenApiParameter.PATH)],
+        responses={200: SubscriptionSerializer}
+    )
+    def retrieve(self, request, pk: int, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
     
     @extend_schema(
         summary="List user subscriptions",
@@ -723,13 +737,6 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
-    
-    @extend_schema(
-        summary="Get subscription details",
-        description="Get details of a specific subscription"
-    )
-    def retrieve(self, request, pk=None):
-        return super().retrieve(request, pk)
     
     @extend_schema(
         summary="Create subscription",
@@ -778,12 +785,16 @@ class OrderViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing orders
     """
+    queryset = Order.objects.all()
     serializer_class = OrderSerializer
     permission_classes = [IsAuthenticated]
     
-    def get_queryset(self):
-        """Return only orders for the authenticated user"""
-        return Order.objects.filter(user=self.request.user).order_by('-created_at')
+    @extend_schema(
+        parameters=[OpenApiParameter(name='id', type=int, location=OpenApiParameter.PATH)],
+        responses={200: OrderSerializer}
+    )
+    def retrieve(self, request, pk: int, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
     
     @extend_schema(
         summary="List user orders",
@@ -793,21 +804,6 @@ class OrderViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
-    
-    @extend_schema(
-        summary="Get order details",
-        description="Get details of a specific order"
-    )
-    def retrieve(self, request, pk=None):
-        try:
-            order = self.get_object()
-            serializer = self.get_serializer(order)
-            return Response(serializer.data)
-        except Order.DoesNotExist:
-            return Response(
-                {"detail": "Order not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
     
     @extend_schema(
         summary="Create an order",

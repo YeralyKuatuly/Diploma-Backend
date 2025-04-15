@@ -16,6 +16,7 @@ from django.db import transaction
 from rest_framework.decorators import action
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
+from .authentication import CustomJWTAuthentication
 
 
 class RateLimitedTokenObtainPairView(TokenObtainPairView):
@@ -50,7 +51,9 @@ class RegisterView(APIView):
 
 
 class LogoutView(APIView):
-    permission_classes = []  # Allow any access
+    authentication_classes = [CustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = None  # No response data needed
 
     @extend_schema(
         summary="Logout user",
@@ -58,70 +61,35 @@ class LogoutView(APIView):
     )
     @method_decorator(ratelimit(key='ip', rate='5/m', method=['POST']))
     def post(self, request):
-        try:
-            refresh_token = request.data.get('refresh_token')
-            if not refresh_token:
-                return Response(
-                    {"error": "Refresh token is required"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Get token and blacklist it
-            token = RefreshToken(refresh_token)
-            token.blacklist()
-            
-            return Response(
-                {"message": "Successfully logged out"},
-                status=status.HTTP_200_OK
-            )
-        except TokenError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_401_UNAUTHORIZED
-            )
-        except Exception as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        response = Response({"detail": "Successfully logged out."}, status=status.HTTP_200_OK)
+        response.delete_cookie('access_token')
+        response.delete_cookie('refresh_token')
+        return response
 
 
 class ProfileView(APIView):
+    authentication_classes = [CustomJWTAuthentication]
     permission_classes = [IsAuthenticated]
-    
+    serializer_class = UserSerializer
+
     @extend_schema(
         summary="Get user profile",
         description="Get the current user's profile information including their artist profile"
     )
     @method_decorator(ratelimit(key='ip', rate='30/m', method=['GET']))
     def get(self, request):
-        user = request.user
-        try:
-            artist = Artist.objects.get(user=user)
-            artist_data = ArtistSerializer(
-                artist, context={'request': request}
-            ).data
-            
-            return Response({
-                'user': {
-                    'id': user.id,
-                    'username': user.username,
-                    'email': user.email
-                },
-                'artist': artist_data
-            })
-        except Artist.DoesNotExist:
-            return Response({
-                'error': 'Artist profile not found'
-            }, status=status.HTTP_404_NOT_FOUND)
+        serializer = self.serializer_class(request.user)
+        return Response(serializer.data)
 
 
 class SubscriptionsView(APIView):
     permission_classes = [IsAuthenticated]
+    serializer_class = ArtistDetailSerializer
     
     @extend_schema(
         summary="Get user subscriptions",
-        description="Get the list of artists the user is subscribed to"
+        description="Get the list of artists the user is subscribed to",
+        responses={200: ArtistDetailSerializer(many=True)}
     )
     @method_decorator(ratelimit(key='ip', rate='30/m', method=['GET']))
     def get(self, request):
@@ -132,7 +100,7 @@ class SubscriptionsView(APIView):
         subscribed_artists = [sub.artist for sub in subscriptions]
         
         # Serialize the artists with detail information
-        serializer = ArtistDetailSerializer(
+        serializer = self.serializer_class(
             subscribed_artists, many=True, context={'request': request}
         )
         
@@ -140,7 +108,9 @@ class SubscriptionsView(APIView):
 
 
 class DeleteAccountView(APIView):
+    authentication_classes = [CustomJWTAuthentication]
     permission_classes = [IsAuthenticated]
+    serializer_class = UserSerializer
 
     @extend_schema(
         summary="Delete user account",

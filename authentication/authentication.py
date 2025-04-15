@@ -2,6 +2,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import AuthenticationFailed, InvalidToken
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 from django.utils.translation import gettext_lazy as _
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 
 
 class CustomJWTAuthentication(JWTAuthentication):
@@ -43,4 +44,22 @@ class CustomJWTAuthentication(JWTAuthentication):
             raise AuthenticationFailed({
                 'code': 'authentication_failed',
                 'detail': str(e),
-            }) 
+            })
+
+    def get_header(self, request):
+        header = super().get_header(request)
+        if header is None:
+            return None
+        return header
+
+
+class CustomJWTAuthenticationScheme(OpenApiAuthenticationExtension):
+    target_class = CustomJWTAuthentication
+    name = 'JWT Authentication'
+
+    def get_security_definition(self, auto_schema):
+        return {
+            'type': 'http',
+            'scheme': 'bearer',
+            'bearerFormat': 'JWT',
+        } 

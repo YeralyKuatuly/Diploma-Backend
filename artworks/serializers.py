@@ -1,13 +1,8 @@
 from rest_framework import serializers
 from .models import Artist, Artwork, Subscription, Notification, Cart, CartItem, Order, OrderItem
 from django.contrib.auth.models import User
-from drf_spectacular.utils import extend_schema_serializer, OpenApiExample
-
-
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ['id', 'username', 'email']
+from drf_spectacular.utils import extend_schema_serializer, OpenApiExample, extend_schema_field
+from authentication.serializers import UserSerializer
 
 
 @extend_schema_serializer(
@@ -30,17 +25,8 @@ class ArtistSerializer(serializers.ModelSerializer):
     profile_picture = serializers.SerializerMethodField()
     is_subscribed = serializers.SerializerMethodField()
 
-    class Meta:
-        model = Artist
-        fields = [
-            'id', 'name', 'bio', 'profile_picture',
-            'user', 'username', 'email', 'artwork_count', 'is_subscribed'
-        ]
-
-    def get_artwork_count(self, obj):
-        return obj.artworks.count()
-
-    def get_profile_picture(self, obj):
+    @extend_schema_field(serializers.URLField)
+    def get_profile_picture(self, obj) -> str:
         if obj.profile_image and hasattr(obj.profile_image, 'url'):
             request = self.context.get('request')
             if request is not None:
@@ -48,7 +34,12 @@ class ArtistSerializer(serializers.ModelSerializer):
             return obj.profile_image.url
         return None
 
-    def get_is_subscribed(self, obj):
+    @extend_schema_field(serializers.IntegerField)
+    def get_artwork_count(self, obj) -> int:
+        return obj.artworks.count()
+
+    @extend_schema_field(serializers.BooleanField)
+    def get_is_subscribed(self, obj) -> bool:
         request = self.context.get('request')
         if request and request.user.is_authenticated:
             return Subscription.objects.filter(
@@ -98,6 +89,13 @@ class ArtistSerializer(serializers.ModelSerializer):
         validated_data.pop('username', None)
         validated_data.pop('email', None)
         return super().update(instance, validated_data)
+
+    class Meta:
+        model = Artist
+        fields = [
+            'id', 'name', 'bio', 'profile_picture',
+            'user', 'username', 'email', 'artwork_count', 'is_subscribed'
+        ]
 
 
 class ArtistDetailSerializer(serializers.ModelSerializer):
@@ -158,6 +156,15 @@ class ArtworkSerializer(serializers.ModelSerializer):
     image_url = serializers.URLField(write_only=True, required=False)
     image_file = serializers.ImageField(write_only=True, required=False)
 
+    @extend_schema_field(serializers.URLField)
+    def get_image(self, obj) -> str:
+        if obj.image and hasattr(obj.image, 'url'):
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+
     class Meta:
         model = Artwork
         fields = [
@@ -165,14 +172,6 @@ class ArtworkSerializer(serializers.ModelSerializer):
             'image', 'image_url', 'image_file', 'price', 
             'artist', 'artist_id', 'is_available', 'created_at'
         ]
-
-    def get_image(self, obj):
-        request = self.context.get('request')
-        if obj.image and hasattr(obj.image, 'url'):
-            if request:
-                return request.build_absolute_uri(obj.image.url)
-            return obj.image.url
-        return obj.image_url or ""
 
     def create(self, validated_data):
         artist_id = validated_data.pop('artist_id')
@@ -221,6 +220,12 @@ class NotificationSerializer(serializers.ModelSerializer):
     artwork = ArtworkSerializer(read_only=True)
     artist = ArtistSerializer(read_only=True)
     
+    @extend_schema_field(serializers.CharField)
+    def get_artwork_title(self, obj) -> str:
+        if obj.artwork:
+            return obj.artwork.title
+        return None
+
     class Meta:
         model = Notification
         fields = [
@@ -228,11 +233,6 @@ class NotificationSerializer(serializers.ModelSerializer):
             'artwork', 'artwork_title', 'is_read', 'created_at'
         ]
         read_only_fields = ['created_at']
-    
-    def get_artwork_title(self, obj):
-        if obj.artwork:
-            return obj.artwork.title
-        return None
 
 
 class CartItemSerializer(serializers.ModelSerializer):
