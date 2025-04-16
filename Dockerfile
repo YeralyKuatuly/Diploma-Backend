@@ -19,9 +19,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV DJANGO_SETTINGS_MODULE=backend.settings
-ENV SECRET_KEY=8f4d2a1c9e7b3f6a5d8c2b1e4f7a9d3c6b5e8a2f4d1c9b7e3a6f8d2c5b1e4a9
-ENV DJANGO_DEBUG=True
-ENV ALLOWED_HOSTS=localhost,127.0.0.1
 
 # Copy project files
 COPY . .
@@ -37,4 +34,4 @@ RUN python manage.py collectstatic --noinput
 EXPOSE 8000
 
 # Command to run the application - wait for PostgreSQL and then start Django
-CMD bash -c "while ! nc -z db 5432; do sleep 0.1; done && python manage.py migrate && python manage.py runserver 0.0.0.0:8000" 
+CMD bash -c "while ! nc -z db 5432; do sleep 0.1; done && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
