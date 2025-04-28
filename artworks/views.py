@@ -371,53 +371,66 @@ class ArtworkViewSet(viewsets.ModelViewSet):
     )
     def create(self, request, *args, **kwargs):
         try:
-            artist = Artist.objects.get(user=request.user)
-        except Artist.DoesNotExist:
-            error_msg = (
-                "You must be registered as an artist to add artwork"
+            # Print request info for debugging
+            print(f"User: {request.user.username}, authenticated: {request.user.is_authenticated}")
+            
+            try:
+                artist = Artist.objects.get(user=request.user)
+                print(f"Found artist profile: {artist.name} (ID: {artist.id})")
+            except Artist.DoesNotExist:
+                error_msg = "You must be registered as an artist to add artwork"
+                print(f"Error: {error_msg}")
+                return Response(
+                    {"detail": error_msg},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # Print debug information
+            print("Request data received:", request.data)
+            print("Request FILES:", request.FILES)
+
+            # Handle image file upload
+            image_file = request.FILES.get('image')
+            if image_file:
+                print("Processing image file:", image_file.name)
+            else:
+                print("No image file received")
+
+            # Create serializer with context and data
+            serializer = self.get_serializer(
+                data=request.data,
+                context={'request': request}
             )
+            
+            if not serializer.is_valid():
+                print(f"Serializer errors: {serializer.errors}")
+                return Response(
+                    serializer.errors,
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Save the artwork
+            artwork = serializer.save()
+            print(f"Artwork created successfully: {artwork.title} (ID: {artwork.id})")
+
+            # Update the artist's artwork count
+            artist.update_artwork_count()
+            
+            # Create notifications for subscribers
+            self._create_notifications_for_subscribers(artist, artwork)
+
             return Response(
-                {"error": error_msg},
-                status=status.HTTP_403_FORBIDDEN
+                self.get_serializer(artwork).data,
+                status=status.HTTP_201_CREATED
             )
-
-        # Print debug information
-        print("Request data received:", request.data)
-        print("Request FILES:", request.FILES)
-
-        # Handle image file upload
-        image_file = request.FILES.get('image')
-        if image_file:
-            print("Processing image file:", image_file.name)
-        else:
-            print("No image file received")
-
-        # Create serializer with context and data
-        serializer = self.get_serializer(
-            data=request.data,
-            context={'request': request}
-        )
-        
-        if not serializer.is_valid():
-            print(f"Serializer errors: {serializer.errors}")
+        except Exception as e:
+            print(f"Unexpected error creating artwork: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return Response(
-                serializer.errors,
+                {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
-        # Save the artwork
-        artwork = serializer.save()
-
-        # Update the artist's artwork count
-        artist.update_artwork_count()
-        
-        # Create notifications for subscribers
-        self._create_notifications_for_subscribers(artist, artwork)
-
-        return Response(
-            self.get_serializer(artwork).data,
-            status=status.HTTP_201_CREATED
-        )
 
     def _create_notifications_for_subscribers(self, artist, artwork):
         """Create notifications for all subscribers when new artwork is added"""
