@@ -404,6 +404,9 @@ class ArtworkViewSet(viewsets.ModelViewSet):
             
             if not serializer.is_valid():
                 print(f"Serializer errors: {serializer.errors}")
+                # Print detailed validation errors for debugging
+                for field, errors in serializer.errors.items():
+                    print(f"Field '{field}' errors: {errors}")
                 return Response(
                     serializer.errors,
                     status=status.HTTP_400_BAD_REQUEST

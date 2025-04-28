@@ -151,6 +151,7 @@ class ArtistDetailSerializer(serializers.ModelSerializer):
 )
 class ArtworkSerializer(serializers.ModelSerializer):
     artist = ArtistSerializer(read_only=True)
+    artist_id = serializers.IntegerField(write_only=True, required=False)
     image = serializers.ImageField(required=False, allow_null=True)
     image_url = serializers.URLField(required=False, allow_null=True)
 
@@ -166,16 +167,17 @@ class ArtworkSerializer(serializers.ModelSerializer):
         model = Artwork
         fields = [
             'id', 'title', 'description', 'price',
-            'image', 'image_url', 'artist',
+            'image', 'image_url', 'artist', 'artist_id',
             'is_available', 'created_at'
         ]
         extra_kwargs = {
             'image': {'required': False, 'allow_null': True},
             'image_url': {'required': False, 'allow_null': True},
+            'artist_id': {'required': False},
         }
 
     def validate(self, data):
-        # Remove artist from input data if present
+        # Remove artist from input data if present (but keep artist_id if it exists)
         data.pop('artist', None)
         
         # Clean up empty image data
@@ -194,6 +196,9 @@ class ArtworkSerializer(serializers.ModelSerializer):
         if not hasattr(request.user, 'artist'):
             raise serializers.ValidationError("You must be registered as an artist to add artwork.")
             
+        # Pop artist_id if it exists, we'll use the current user's artist
+        validated_data.pop('artist_id', None)
+        
         artist = request.user.artist
         return Artwork.objects.create(artist=artist, **validated_data)
 
