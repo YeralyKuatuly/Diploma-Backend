@@ -151,8 +151,8 @@ class ArtistDetailSerializer(serializers.ModelSerializer):
 )
 class ArtworkSerializer(serializers.ModelSerializer):
     artist = ArtistSerializer(read_only=True)
-    image = serializers.ImageField(required=False)
-    image_url = serializers.URLField(required=False)
+    image = serializers.ImageField(required=False, allow_null=True)
+    image_url = serializers.URLField(required=False, allow_null=True)
 
     def get_image(self, obj):
         if obj.image and hasattr(obj.image, 'url'):
@@ -169,6 +169,10 @@ class ArtworkSerializer(serializers.ModelSerializer):
             'image', 'image_url', 'artist',
             'is_available', 'created_at'
         ]
+        extra_kwargs = {
+            'image': {'required': False, 'allow_null': True},
+            'image_url': {'required': False, 'allow_null': True},
+        }
 
     def create(self, validated_data):
         request = self.context.get('request')
@@ -176,6 +180,13 @@ class ArtworkSerializer(serializers.ModelSerializer):
             artist = request.user.artist
         else:
             raise serializers.ValidationError("You must be an artist to add artwork.")
+            
+        # Remove empty image data if present
+        if 'image' in validated_data and not validated_data['image']:
+            validated_data.pop('image')
+        if 'image_url' in validated_data and not validated_data['image_url']:
+            validated_data.pop('image_url')
+            
         return Artwork.objects.create(artist=artist, **validated_data)
 
 
