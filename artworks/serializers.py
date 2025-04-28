@@ -174,19 +174,27 @@ class ArtworkSerializer(serializers.ModelSerializer):
             'image_url': {'required': False, 'allow_null': True},
         }
 
+    def validate(self, data):
+        # Remove artist from input data if present
+        data.pop('artist', None)
+        
+        # Clean up empty image data
+        if 'image' in data and not data['image']:
+            data.pop('image')
+        if 'image_url' in data and not data['image_url']:
+            data.pop('image_url')
+            
+        return data
+
     def create(self, validated_data):
         request = self.context.get('request')
-        if request and hasattr(request.user, 'artist'):
-            artist = request.user.artist
-        else:
-            raise serializers.ValidationError("You must be an artist to add artwork.")
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError("You must be authenticated to add artwork.")
             
-        # Remove empty image data if present
-        if 'image' in validated_data and not validated_data['image']:
-            validated_data.pop('image')
-        if 'image_url' in validated_data and not validated_data['image_url']:
-            validated_data.pop('image_url')
+        if not hasattr(request.user, 'artist'):
+            raise serializers.ValidationError("You must be registered as an artist to add artwork.")
             
+        artist = request.user.artist
         return Artwork.objects.create(artist=artist, **validated_data)
 
 
