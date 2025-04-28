@@ -151,49 +151,32 @@ class ArtistDetailSerializer(serializers.ModelSerializer):
 )
 class ArtworkSerializer(serializers.ModelSerializer):
     artist = ArtistSerializer(read_only=True)
-    artist_id = serializers.IntegerField(write_only=True)
-    image = serializers.SerializerMethodField()
-    image_url = serializers.URLField(write_only=True, required=False)
-    image_file = serializers.ImageField(write_only=True, required=False)
+    image = serializers.ImageField(required=False)
+    image_url = serializers.URLField(required=False)
 
-    @extend_schema_field(serializers.URLField)
-    def get_image(self, obj) -> str:
+    def get_image(self, obj):
         if obj.image and hasattr(obj.image, 'url'):
             request = self.context.get('request')
             if request:
                 return request.build_absolute_uri(obj.image.url)
             return obj.image.url
-        return None
+        return obj.image_url if obj.image_url else None
 
     class Meta:
         model = Artwork
         fields = [
-            'id', 'title', 'description',
-            'image', 'image_url', 'image_file', 'price', 
-            'artist', 'artist_id', 'is_available', 'created_at'
+            'id', 'title', 'description', 'price',
+            'image', 'image_url', 'artist',
+            'is_available', 'created_at'
         ]
 
     def create(self, validated_data):
-        artist_id = validated_data.pop('artist_id')
-        from .models import Artist
-        artist = Artist.objects.get(id=artist_id)
-        
-        # Get image file or URL
-        image_file = validated_data.pop('image_file', None)
-        image_url = validated_data.pop('image_url', None)
-        
-        artwork = Artwork.objects.create(
-            artist=artist,
-            **validated_data
-        )
-        
-        if image_file:
-            artwork.image = image_file
-        elif image_url:
-            artwork.image_url = image_url
-            
-        artwork.save()
-        return artwork
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'artist'):
+            artist = request.user.artist
+        else:
+            raise serializers.ValidationError("You must be an artist to add artwork.")
+        return Artwork.objects.create(artist=artist, **validated_data)
 
 
 class SubscriptionSerializer(serializers.ModelSerializer):

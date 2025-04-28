@@ -365,28 +365,48 @@ class ArtworkViewSet(viewsets.ModelViewSet):
 
     @extend_schema(
         summary="Create a new artwork",
-        description="Create a new artwork for the authenticated artist"
+        description=(
+            "Create a new artwork for the authenticated artist"
+        )
     )
     def create(self, request, *args, **kwargs):
-        # Get the artist associated with the current user
         try:
             artist = Artist.objects.get(user=request.user)
         except Artist.DoesNotExist:
+            error_msg = (
+                "You must be registered as an artist to add artwork"
+            )
             return Response(
-                {"error": "You must be registered as an artist to add artwork"},
+                {"error": error_msg},
                 status=status.HTTP_403_FORBIDDEN
             )
 
         # Print debug information
-        print(f"Request data received: {request.data}")
-        print(f"Request FILES: {request.FILES}")
+        print("Request data received:", request.data)
+        print("Request FILES:", request.FILES)
 
-        # Create serializer with context
-        serializer = self.get_serializer(data=request.data, context={'request': request})
-        serializer.is_valid(raise_exception=True)
+        # Handle image file upload
+        image_file = request.FILES.get('image')
+        if image_file:
+            print("Processing image file:", image_file.name)
+        else:
+            print("No image file received")
+
+        # Create serializer with context and data
+        serializer = self.get_serializer(
+            data=request.data,
+            context={'request': request}
+        )
+        
+        if not serializer.is_valid():
+            print(f"Serializer errors: {serializer.errors}")
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Save the artwork
-        artwork = serializer.save(artist=artist)
+        artwork = serializer.save()
 
         # Update the artist's artwork count
         artist.update_artwork_count()
@@ -394,9 +414,8 @@ class ArtworkViewSet(viewsets.ModelViewSet):
         # Create notifications for subscribers
         self._create_notifications_for_subscribers(artist, artwork)
 
-        # Return the created artwork
         return Response(
-            self.get_serializer(artwork, context={'request': request}).data,
+            self.get_serializer(artwork).data,
             status=status.HTTP_201_CREATED
         )
 
