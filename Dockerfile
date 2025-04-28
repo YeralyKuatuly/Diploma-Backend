@@ -19,13 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV DJANGO_SETTINGS_MODULE=backend.settings
-<<<<<<< HEAD
 # This is ONLY used during build and will be overridden at runtime
 ENV SECRET_KEY=build_only_placeholder_key_not_used_in_production
-=======
-# Set a dummy SECRET_KEY just for the build process
-ENV SECRET_KEY=dummy_secret_key_for_build_time_only
->>>>>>> e9535e800ff6e77c015e4ed0d7c1474877167117
 
 # Copy project files
 COPY . .
