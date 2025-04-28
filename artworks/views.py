@@ -8,7 +8,7 @@ from .serializers import (
     NotificationSerializer, CartSerializer, OrderSerializer
 )
 from drf_spectacular.utils import (
-    extend_schema, OpenApiParameter, OpenApiResponse
+    extend_schema, OpenApiParameter
 )
 from rest_framework.decorators import action, api_view
 from django.http import HttpResponse, FileResponse, Http404
@@ -202,22 +202,30 @@ class ArtistViewSet(viewsets.ModelViewSet):
         print(f"Request FILES: {request.FILES}")
 
         # Handle profile picture upload
-        profile_picture = request.FILES.get('profile_picture')
+        profile_picture = request.FILES.get('profile_picture') or \
+            request.FILES.get('profile_image')
         if profile_picture:
-            print(f"Processing profile picture: {profile_picture.name} ({profile_picture.content_type}, {profile_picture.size} bytes)")
+            print(
+                f"Processing profile picture: {profile_picture.name} "
+                f"({profile_picture.content_type}, {profile_picture.size} bytes)"
+            )
 
             # If there's an existing profile picture, delete it to avoid orphaned files
-            if instance.profile_picture:
+            if instance.profile_image:
                 try:
-                    instance.profile_picture.delete(save=False)
-                    print(f"Deleted old profile picture")
+                    instance.profile_image.delete(save=False)
+                    print("Deleted old profile picture")
                 except Exception as e:
-                    print(f"Error deleting old profile picture: {str(e)}")
+                    print(
+                        f"Error deleting old profile picture: {str(e)}"
+                    )
 
             # Set the new profile picture
-            instance.profile_picture = profile_picture
+            instance.profile_image = profile_picture
             instance.save()
-            print(f"Saved new profile picture: {instance.profile_picture.url}")
+            print(
+                f"Saved new profile picture: {instance.profile_image.url}"
+            )
 
         serializer = self.get_serializer(
             instance, 
