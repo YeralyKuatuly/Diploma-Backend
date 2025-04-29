@@ -80,6 +80,37 @@ class ProfileView(APIView):
     def get(self, request):
         serializer = self.serializer_class(request.user)
         return Response(serializer.data)
+        
+    @extend_schema(
+        summary="Update user profile",
+        description="Update the current user's profile information"
+    )
+    @method_decorator(ratelimit(key='ip', rate='5/m', method=['PUT']))
+    def put(self, request):
+        user = request.user
+        serializer = self.serializer_class(user, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            serializer.save()
+            
+            # Update artist profile if it exists
+            try:
+                artist = Artist.objects.get(user=user)
+                
+                # Update artist's bio if provided
+                if 'bio' in request.data:
+                    artist.bio = request.data.get('bio', artist.bio)
+                
+                # Update profile picture if provided
+                if 'profile_picture' in request.FILES:
+                    artist.profile_image = request.FILES['profile_picture']
+                
+                artist.save()
+            except Artist.DoesNotExist:
+                pass
+                
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class SubscriptionsView(APIView):
