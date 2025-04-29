@@ -6,10 +6,32 @@ from drf_spectacular.utils import extend_schema_field
 
 
 class UserSerializer(serializers.ModelSerializer):
+    artist = serializers.SerializerMethodField()
+    
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'artist']
         read_only_fields = ['id']
+    
+    def get_artist(self, obj):
+        try:
+            artist = Artist.objects.get(user=obj)
+            return {
+                'id': artist.id,
+                'name': artist.name,
+                'bio': artist.bio,
+                'profile_picture': self.get_profile_picture_url(artist)
+            }
+        except Artist.DoesNotExist:
+            return None
+    
+    def get_profile_picture_url(self, artist):
+        if artist.profile_image and hasattr(artist.profile_image, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(artist.profile_image.url)
+            return artist.profile_image.url
+        return None
 
 
 class RegisterSerializer(serializers.ModelSerializer):

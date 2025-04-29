@@ -1,19 +1,15 @@
 from rest_framework_simplejwt.views import (
     TokenObtainPairView, TokenRefreshView)
-from rest_framework import generics, status
+from rest_framework import status
 from django.contrib.auth.models import User
 from .serializers import UserSerializer, RegisterSerializer
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 from artworks.models import Artist, Subscription
-from artworks.serializers import ArtistSerializer, ArtistDetailSerializer
-from rest_framework_simplejwt.tokens import RefreshToken
-from datetime import timedelta
-from rest_framework_simplejwt.exceptions import TokenError
+from artworks.serializers import ArtistDetailSerializer
 from django.db import transaction
-from rest_framework.decorators import action
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
 from .authentication import CustomJWTAuthentication
@@ -78,7 +74,7 @@ class ProfileView(APIView):
     )
     @method_decorator(ratelimit(key='ip', rate='30/m', method=['GET']))
     def get(self, request):
-        serializer = self.serializer_class(request.user)
+        serializer = self.serializer_class(request.user, context={'request': request})
         return Response(serializer.data)
         
     @extend_schema(
@@ -88,7 +84,7 @@ class ProfileView(APIView):
     @method_decorator(ratelimit(key='ip', rate='5/m', method=['PUT']))
     def put(self, request):
         user = request.user
-        serializer = self.serializer_class(user, data=request.data, partial=True)
+        serializer = self.serializer_class(user, data=request.data, partial=True, context={'request': request})
         
         if serializer.is_valid():
             serializer.save()
@@ -103,13 +99,22 @@ class ProfileView(APIView):
                 
                 # Update profile picture if provided
                 if 'profile_picture' in request.FILES:
+                    # Delete old profile image if it exists
+                    if artist.profile_image:
+                        try:
+                            artist.profile_image.delete(save=False)
+                        except Exception as e:
+                            print(f"Error deleting old profile picture: {str(e)}")
+                    
                     artist.profile_image = request.FILES['profile_picture']
                 
                 artist.save()
             except Artist.DoesNotExist:
                 pass
                 
-            return Response(serializer.data)
+            # Return updated data with artist profile
+            updated_serializer = self.serializer_class(user, context={'request': request})
+            return Response(updated_serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
