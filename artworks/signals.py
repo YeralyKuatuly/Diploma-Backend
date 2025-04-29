@@ -15,5 +15,5 @@ def create_artist_profile(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=User)
 def save_artist_profile(sender, instance, **kwargs):
-    if hasattr(instance, 'artist'):
-        instance.artist.save()
+    if hasattr(instance, 'artist_profile'):
+        instance.artist_profile.save()

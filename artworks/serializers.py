@@ -53,7 +53,7 @@ class ArtistSerializer(serializers.ModelSerializer):
 
         if request and request.user.is_authenticated:
             # If user is authenticated, use the authenticated user
-            if hasattr(request.user, 'artist'):
+            if hasattr(request.user, 'artist_profile'):
                 raise serializers.ValidationError(
                     "You already have an artist profile"
                 )
@@ -70,7 +70,7 @@ class ArtistSerializer(serializers.ModelSerializer):
 
             try:
                 user = User.objects.get(username=username)
-                if hasattr(user, 'artist'):
+                if hasattr(user, 'artist_profile'):
                     raise serializers.ValidationError(
                         "This user already has an artist profile"
                     )
@@ -193,13 +193,13 @@ class ArtworkSerializer(serializers.ModelSerializer):
         if not request or not request.user.is_authenticated:
             raise serializers.ValidationError("You must be authenticated to add artwork.")
             
-        if not hasattr(request.user, 'artist'):
+        if not hasattr(request.user, 'artist_profile'):
             raise serializers.ValidationError("You must be registered as an artist to add artwork.")
             
         # Pop artist_id if it exists, we'll use the current user's artist
         validated_data.pop('artist_id', None)
         
-        artist = request.user.artist
+        artist = request.user.artist_profile
         return Artwork.objects.create(artist=artist, **validated_data)
 
 

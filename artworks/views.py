@@ -254,7 +254,7 @@ class ArtistViewSet(viewsets.ModelViewSet):
         user = request.user
         
         # Prevent subscribing to your own artist profile
-        if hasattr(user, 'artist') and user.artist == artist:
+        if hasattr(user, 'artist_profile') and user.artist_profile == artist:
             return Response(
                 {"detail": "You cannot subscribe to your own artist profile"},
                 status=status.HTTP_400_BAD_REQUEST
@@ -374,16 +374,18 @@ class ArtworkViewSet(viewsets.ModelViewSet):
             # Print request info for debugging
             print(f"User: {request.user.username}, authenticated: {request.user.is_authenticated}")
             
-            try:
-                artist = Artist.objects.get(user=request.user)
-                print(f"Found artist profile: {artist.name} (ID: {artist.id})")
-            except Artist.DoesNotExist:
+            # Check if the user has an artist profile
+            if not hasattr(request.user, 'artist_profile'):
                 error_msg = "You must be registered as an artist to add artwork"
                 print(f"Error: {error_msg}")
                 return Response(
                     {"detail": error_msg},
                     status=status.HTTP_403_FORBIDDEN
                 )
+            
+            # Get the artist profile from the user
+            artist = request.user.artist_profile
+            print(f"Found artist profile: {artist.name} (ID: {artist.id})")
 
             # Print debug information
             print("Request data received:", request.data)
