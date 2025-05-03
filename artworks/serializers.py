@@ -94,7 +94,8 @@ class ArtistSerializer(serializers.ModelSerializer):
         model = Artist
         fields = [
             'id', 'name', 'bio', 'profile_picture',
-            'user', 'username', 'email', 'artwork_count', 'is_subscribed'
+            'user', 'username', 'email', 'artwork_count', 'is_subscribed',
+            'telegram', 'whatsapp', 'contact_email'
         ]
 
 
@@ -110,7 +111,8 @@ class ArtistDetailSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Artist
-        fields = ['id', 'name', 'bio', 'profile_picture', 'artwork_count', 'artworks', 'is_subscribed']
+        fields = ['id', 'name', 'bio', 'profile_picture', 'artwork_count', 'artworks', 'is_subscribed',
+                 'telegram', 'whatsapp', 'contact_email']
     
     def get_artwork_count(self, obj):
         return obj.artworks.count()

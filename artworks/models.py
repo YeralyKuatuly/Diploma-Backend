@@ -20,6 +20,9 @@ class Artist(models.Model):
         null=True,
         blank=True
     )
+    telegram = models.CharField(max_length=100, blank=True, null=True)
+    whatsapp = models.CharField(max_length=100, blank=True, null=True)
+    contact_email = models.EmailField(max_length=100, blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     artwork_count = models.IntegerField(default=0)
