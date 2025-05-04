@@ -236,39 +236,25 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 os.makedirs(MEDIA_ROOT, exist_ok=True)
 os.makedirs(STATIC_ROOT, exist_ok=True)
 
-# Email configuration
-if DEBUG:
-    # Use console backend for development - prints to console
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-else:
-    # Use file-based backend for production - more reliable than SMTP
-    EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
-    EMAIL_FILE_PATH = os.path.join(BASE_DIR, 'sent_emails')
-    
-    # Make sure the directory exists
-    os.makedirs(EMAIL_FILE_PATH, exist_ok=True)
+# Email configuration - SIMPLIFIED APPROACH
+# Use the file backend for all environments to avoid SMTP issues
+EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
 
-# The previous configuration is commented out for now
-'''
-if DEBUG:
-    # Use console backend for development
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-else:
-    # Check if email credentials are set in environment
-    if os.getenv('EMAIL_HOST') and os.getenv('EMAIL_HOST_PASSWORD'):
-        # Use SMTP when credentials are available
-        EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-        EMAIL_HOST = os.getenv('EMAIL_HOST')
-        EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
-        EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
-        EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
-        EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
-        EMAIL_TIMEOUT = 30  # 30 seconds timeout
+# Create an absolute path to the sent_emails directory in the project root
+EMAIL_FILE_PATH = os.path.join(Path(__file__).resolve().parent.parent.parent, 'sent_emails')
+
+# Print the path to help with debugging
+print(f"Email files will be saved to: {EMAIL_FILE_PATH}")
+
+# Ensure directory exists with proper permissions
+try:
+    if not os.path.exists(EMAIL_FILE_PATH):
+        os.makedirs(EMAIL_FILE_PATH, mode=0o777, exist_ok=True)
+        print(f"Created email directory at {EMAIL_FILE_PATH}")
     else:
-        # Fall back to file backend if no credentials
-        EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
-        EMAIL_FILE_PATH = os.path.join(BASE_DIR, 'sent_emails')
-'''
+        print(f"Email directory already exists at {EMAIL_FILE_PATH}")
+except Exception as e:
+    print(f"Error creating email directory: {str(e)}")
 
 # The email address that will be shown as the sender
 # SECURITY: Don't use real addresses in defaults
