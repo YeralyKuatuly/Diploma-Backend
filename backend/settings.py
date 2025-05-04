@@ -17,7 +17,13 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
-load_dotenv()
+# Check for .env in the project root directory (parent of backend)
+dotenv_path = os.path.join(Path(__file__).resolve().parent.parent.parent, '.env')
+if os.path.exists(dotenv_path):
+    load_dotenv(dotenv_path)
+else:
+    # Fallback to .env in the same directory as settings.py
+    load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -235,24 +241,28 @@ if DEBUG:
     # Use console backend for development
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 else:
-    # Use file backend for production to avoid SMTP timeouts
-    # Emails will be saved to files instead of being sent via SMTP
-    # This is a temporary solution until proper email service is configured
-    EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
-    EMAIL_FILE_PATH = os.path.join(BASE_DIR, 'sent_emails')
+    # Check if email credentials are set in environment
+    if os.getenv('EMAIL_HOST') and os.getenv('EMAIL_HOST_PASSWORD'):
+        # Use SMTP when credentials are available
+        EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+        EMAIL_HOST = os.getenv('EMAIL_HOST')
+        EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+        EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
+        EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
+        EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
+        EMAIL_TIMEOUT = 30  # 30 seconds timeout
+    else:
+        # Fall back to file backend if no credentials
+        EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
+        EMAIL_FILE_PATH = os.path.join(BASE_DIR, 'sent_emails')
     
-    # Uncomment below when ready to use SMTP
-    # EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    # EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-    # EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
-    # EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
-    # EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
-    # EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
-    # EMAIL_TIMEOUT = 30  # 30 seconds timeout
+    # NOTE: For SMTP configuration, add these to your environment variables:
+    # EMAIL_HOST, EMAIL_PORT, EMAIL_USE_TLS, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD
 
 # The email address that will be shown as the sender
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@artgallery.com')
-SERVER_EMAIL = os.getenv('SERVER_EMAIL', 'server@artgallery.com')
+# SECURITY: Don't use real addresses in defaults
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@example.com')
+SERVER_EMAIL = os.getenv('SERVER_EMAIL', 'server@example.com')
 
 # Password reset configuration
 PASSWORD_RESET_TIMEOUT = 86400  # 24 hours in seconds
