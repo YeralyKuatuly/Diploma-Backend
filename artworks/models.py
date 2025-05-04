@@ -23,6 +23,8 @@ class Artist(models.Model):
     telegram = models.CharField(max_length=100, blank=True, null=True)
     whatsapp = models.CharField(max_length=100, blank=True, null=True)
     contact_email = models.EmailField(max_length=100, blank=True, null=True)
+    kaspi_phone = models.CharField(max_length=20, blank=True, null=True)
+    kaspi_card_number = models.CharField(max_length=20, blank=True, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     artwork_count = models.IntegerField(default=0)
@@ -211,6 +213,20 @@ class Order(models.Model):
         ('completed', 'Completed'),
         ('cancelled', 'Cancelled'),
     ]
+    
+    ORDER_TYPE_CHOICES = [
+        ('pickup', 'Pickup'),
+        ('delivery', 'Delivery'),
+    ]
+    
+    DELIVERY_STATUS_CHOICES = [
+        ('awaiting', 'Awaiting Processing'),
+        ('preparing', 'Preparing Artwork'),
+        ('ready', 'Ready for Pickup'),
+        ('on_road', 'On the Road'),
+        ('arrived', 'Arrived'),
+        ('delivered', 'Delivered'),
+    ]
 
     user = models.ForeignKey(
         User, 
@@ -223,10 +239,30 @@ class Order(models.Model):
         default='pending'
     )
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    shipping_address = models.TextField()
+    shipping_address = models.TextField(blank=True, null=True)
+    pickup_location = models.TextField(blank=True, null=True)
     payment_id = models.CharField(max_length=100, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+    payment_method = models.CharField(
+        max_length=20,
+        choices=[
+            ('kaspi', 'Kaspi Pay'),
+            ('cash', 'Cash on Delivery'),
+            ('other', 'Other')
+        ],
+        default='kaspi'
+    )
+    order_type = models.CharField(
+        max_length=20,
+        choices=ORDER_TYPE_CHOICES,
+        default='pickup'
+    )
+    delivery_status = models.CharField(
+        max_length=20,
+        choices=DELIVERY_STATUS_CHOICES,
+        default='awaiting'
+    )
 
     def __str__(self):
         return f"Order {self.id} by {self.user.username}"
@@ -250,3 +286,41 @@ class OrderItem(models.Model):
     @property
     def total_price(self):
         return self.price * self.quantity
+
+
+class KaspiPayment(models.Model):
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+        ('expired', 'Expired'),
+    ]
+    
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='kaspi_payments'
+    )
+    artist = models.ForeignKey(
+        Artist,
+        on_delete=models.CASCADE,
+        related_name='kaspi_payments'
+    )
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    recipient_phone = models.CharField(max_length=20)
+    recipient_card = models.CharField(max_length=20, blank=True, null=True)
+    qr_code_image = models.ImageField(
+        upload_to='kaspi_qr_codes/',
+        blank=True,
+        null=True
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending'
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Kaspi Payment of {self.amount} to {self.artist.name} for Order {self.order.id}"

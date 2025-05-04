@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Artist, Artwork, Subscription, Notification, Cart, CartItem, Order, OrderItem
+from .models import Artist, Artwork, Subscription, Notification, Cart, CartItem, Order, OrderItem, KaspiPayment
 from django.contrib.auth.models import User
 from drf_spectacular.utils import extend_schema_serializer, OpenApiExample, extend_schema_field
 from authentication.serializers import UserSerializer
@@ -95,7 +95,7 @@ class ArtistSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'bio', 'profile_picture',
             'user', 'username', 'email', 'artwork_count', 'is_subscribed',
-            'telegram', 'whatsapp', 'contact_email'
+            'telegram', 'whatsapp', 'contact_email', 'kaspi_phone', 'kaspi_card_number'
         ]
 
 
@@ -273,8 +273,38 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
-
+    kaspi_payments = serializers.SerializerMethodField()
+    
+    def get_kaspi_payments(self, obj):
+        payments = obj.kaspi_payments.all()
+        return KaspiPaymentSerializer(payments, many=True, context=self.context).data
+    
     class Meta:
         model = Order
-        fields = ['id', 'status', 'total_amount', 'shipping_address', 'payment_id', 'items', 'created_at', 'updated_at']
+        fields = [
+            'id', 'status', 'total_amount', 'shipping_address', 
+            'pickup_location', 'payment_id', 'payment_method', 
+            'order_type', 'delivery_status', 'items', 
+            'created_at', 'updated_at', 'kaspi_payments'
+        ]
         read_only_fields = ['status', 'payment_id']
+
+
+class KaspiPaymentSerializer(serializers.ModelSerializer):
+    qr_code_url = serializers.SerializerMethodField()
+    
+    def get_qr_code_url(self, obj):
+        if obj.qr_code_image and hasattr(obj.qr_code_image, 'url'):
+            request = self.context.get('request')
+            if request is not None:
+                return request.build_absolute_uri(obj.qr_code_image.url)
+            return obj.qr_code_image.url
+        return None
+    
+    class Meta:
+        model = KaspiPayment
+        fields = [
+            'id', 'order', 'artist', 'amount', 'recipient_phone',
+            'recipient_card', 'qr_code_url', 'status', 'created_at'
+        ]
+        read_only_fields = ['created_at', 'qr_code_url']

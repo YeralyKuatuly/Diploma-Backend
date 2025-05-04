@@ -1,11 +1,11 @@
 from rest_framework import generics, viewsets, status, permissions
 from rest_framework.response import Response
 from .models import (
-    Artist, Artwork, Subscription, Notification, Cart, CartItem, Order, OrderItem
+    Artist, Artwork, Subscription, Notification, Cart, CartItem, Order, OrderItem, KaspiPayment
 )
 from .serializers import (
     ArtistSerializer, ArtworkSerializer, SubscriptionSerializer,
-    NotificationSerializer, CartSerializer, OrderSerializer
+    NotificationSerializer, CartSerializer, OrderSerializer, KaspiPaymentSerializer
 )
 from drf_spectacular.utils import (
     extend_schema, OpenApiParameter
@@ -852,7 +852,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     
     @extend_schema(
         summary="Create an order",
-        description="Create a new order from the items in the user's cart"
+        description="Create a new order with delivery options and Kaspi payments for each artist"
     )
     def create(self, request):
         try:
@@ -866,13 +866,21 @@ class OrderViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Get shipping address from request
-            shipping_address = request.data.get('shipping_address')
-            if not shipping_address:
+            # Get order details from request
+            order_type = request.data.get('order_type', 'pickup')
+            shipping_address = request.data.get('shipping_address', '')
+            pickup_location = request.data.get('pickup_location', '')
+            payment_method = request.data.get('payment_method', 'kaspi')
+            
+            # If order type is delivery, require shipping address
+            if order_type == 'delivery' and not shipping_address:
                 return Response(
-                    {"detail": "Shipping address is required"},
+                    {"detail": "Shipping address is required for delivery orders"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+                
+            # Set initial delivery status based on order type
+            initial_delivery_status = 'awaiting'
             
             # Calculate total amount
             total_amount = sum(item.total_price for item in cart.items.all())
@@ -881,16 +889,71 @@ class OrderViewSet(viewsets.ModelViewSet):
             order = Order.objects.create(
                 user=request.user,
                 shipping_address=shipping_address,
-                total_amount=total_amount
+                pickup_location=pickup_location,
+                total_amount=total_amount,
+                payment_method=payment_method,
+                order_type=order_type,
+                delivery_status=initial_delivery_status
             )
             
-            # Create order items
+            # Group cart items by artist for separate payments
+            artist_items = {}
             for cart_item in cart.items.all():
+                artist = cart_item.artwork.artist
+                if artist.id not in artist_items:
+                    artist_items[artist.id] = {
+                        'artist': artist,
+                        'items': [],
+                        'total': 0
+                    }
+                artist_items[artist.id]['items'].append(cart_item)
+                artist_items[artist.id]['total'] += cart_item.total_price
+                
+                # Create order item
                 OrderItem.objects.create(
                     order=order,
                     artwork=cart_item.artwork,
                     price=cart_item.artwork.price,
                     quantity=cart_item.quantity
+                )
+            
+            # Create Kaspi payments for each artist
+            kaspi_payments = []
+            missing_payment_details = []
+            
+            for artist_id, data in artist_items.items():
+                artist = data['artist']
+                amount = data['total']
+                
+                # Check if artist has Kaspi payment details
+                if not (artist.kaspi_phone or artist.kaspi_card_number):
+                    missing_payment_details.append(artist.name)
+                    continue
+                
+                # Create Kaspi payment
+                recipient_phone = artist.kaspi_phone or ""
+                recipient_card = artist.kaspi_card_number or ""
+                
+                kaspi_payment = KaspiPayment.objects.create(
+                    order=order,
+                    artist=artist,
+                    amount=amount,
+                    recipient_phone=recipient_phone,
+                    recipient_card=recipient_card
+                )
+                
+                # Generate QR code
+                self.generate_kaspi_qr_code(kaspi_payment)
+                kaspi_payments.append(kaspi_payment)
+            
+            # If some artists are missing payment details
+            if missing_payment_details:
+                return Response(
+                    {
+                        "detail": f"The following artists are missing payment details: {', '.join(missing_payment_details)}",
+                        "order": OrderSerializer(order, context={'request': request}).data
+                    },
+                    status=status.HTTP_201_CREATED
                 )
             
             # Clear the cart
@@ -909,9 +972,114 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
     
+    def generate_kaspi_qr_code(self, kaspi_payment):
+        """
+        Generate QR code for Kaspi payment
+        """
+        try:
+            import qrcode
+            from PIL import Image
+            from io import BytesIO
+            from django.core.files.base import ContentFile
+            
+            # Generate payment info for QR code
+            if kaspi_payment.recipient_phone:
+                payment_info = f"kaspi:{kaspi_payment.recipient_phone}:{kaspi_payment.amount}"
+            else:
+                payment_info = f"kaspi_card:{kaspi_payment.recipient_card}:{kaspi_payment.amount}"
+            
+            # Generate QR code
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(payment_info)
+            qr.make(fit=True)
+            
+            img = qr.make_image(fill_color="black", back_color="white")
+            
+            # Save QR code image
+            buffer = BytesIO()
+            img.save(buffer, format="PNG")
+            
+            filename = f"kaspi_payment_{kaspi_payment.id}.png"
+            kaspi_payment.qr_code_image.save(
+                filename,
+                ContentFile(buffer.getvalue()),
+                save=True
+            )
+            
+            return True
+        
+        except Exception as e:
+            print(f"Error generating QR code: {str(e)}")
+            return False
+    
+    @extend_schema(
+        summary="Complete Kaspi payment",
+        description="Mark a specific Kaspi payment as completed"
+    )
+    @action(detail=True, methods=['post'], url_path='complete-payment/(?P<payment_id>[^/.]+)')
+    def complete_payment(self, request, pk=None, payment_id=None):
+        order = self.get_object()
+        
+        # Find the specific payment
+        try:
+            payment = KaspiPayment.objects.get(id=payment_id, order=order)
+        except KaspiPayment.DoesNotExist:
+            return Response(
+                {"detail": f"Payment with ID {payment_id} not found for this order"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Update payment status
+        payment.status = 'completed'
+        payment.save()
+        
+        # Check if all payments are completed
+        pending_payments = order.kaspi_payments.exclude(status='completed').count()
+        
+        # If no pending payments, mark order as completed
+        if pending_payments == 0:
+            order.status = 'completed'
+            order.save()
+        
+        serializer = self.get_serializer(order)
+        return Response(serializer.data)
+    
+    @extend_schema(
+        summary="Get payment QR codes",
+        description="Get all QR codes for Kaspi payments for this order"
+    )
+    @action(detail=True, methods=['get'], url_path='payment-qr-codes')
+    def payment_qr_codes(self, request, pk=None):
+        order = self.get_object()
+        
+        # Get all payments for this order
+        payments = order.kaspi_payments.all()
+        
+        if not payments.exists():
+            return Response(
+                {"detail": "No Kaspi payments found for this order"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Return payment details with QR codes
+        payment_data = KaspiPaymentSerializer(
+            payments, 
+            many=True, 
+            context={'request': request}
+        ).data
+        
+        return Response({
+            "payments": payment_data
+        })
+    
     @extend_schema(
         summary="Cancel an order",
-        description="Cancel a pending order"
+        description="Cancel a pending order and its payments"
     )
     @action(detail=True, methods=['post'], url_path='cancel')
     def cancel_order(self, request, pk=None):
@@ -929,6 +1097,9 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.status = 'cancelled'
             order.save()
             
+            # Update all Kaspi payments to failed
+            order.kaspi_payments.update(status='failed')
+            
             serializer = self.get_serializer(order)
             return Response(serializer.data)
             
@@ -937,3 +1108,127 @@ class OrderViewSet(viewsets.ModelViewSet):
                 {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+    @extend_schema(
+        summary="Update delivery status",
+        description="Artist can update the delivery status of an order"
+    )
+    @action(detail=True, methods=['post'], url_path='update-delivery-status')
+    def update_delivery_status(self, request, pk=None):
+        order = self.get_object()
+        new_status = request.data.get('delivery_status')
+        
+        # Validate the new status
+        valid_statuses = [status[0] for status in Order.DELIVERY_STATUS_CHOICES]
+        if not new_status or new_status not in valid_statuses:
+            return Response(
+                {
+                    "detail": f"Invalid delivery status. Must be one of: {', '.join(valid_statuses)}"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if user is an artist who has items in this order
+        artwork_ids = order.items.values_list('artwork_id', flat=True)
+        artworks = Artwork.objects.filter(id__in=artwork_ids)
+        artist_ids = artworks.values_list('artist__id', flat=True).distinct()
+        
+        if not hasattr(request.user, 'artist_profile') or request.user.artist_profile.id not in artist_ids:
+            return Response(
+                {"detail": "You must be an artist with items in this order to update its status"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Update the delivery status
+        order.delivery_status = new_status
+        order.save()
+        
+        # If delivery status is 'delivered', also update order status to 'completed'
+        if new_status == 'delivered':
+            order.status = 'completed'
+            order.save()
+        
+        return Response(
+            self.get_serializer(order).data
+        )
+    
+    @extend_schema(
+        summary="Update pickup location",
+        description="Artist can update the pickup location for an order"
+    )
+    @action(detail=True, methods=['post'], url_path='update-pickup-location')
+    def update_pickup_location(self, request, pk=None):
+        order = self.get_object()
+        pickup_location = request.data.get('pickup_location')
+        
+        if not pickup_location:
+            return Response(
+                {"detail": "Pickup location is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if order type is pickup
+        if order.order_type != 'pickup':
+            return Response(
+                {"detail": "This is not a pickup order"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if user is an artist who has items in this order
+        artwork_ids = order.items.values_list('artwork_id', flat=True)
+        artworks = Artwork.objects.filter(id__in=artwork_ids)
+        artist_ids = artworks.values_list('artist__id', flat=True).distinct()
+        
+        if not hasattr(request.user, 'artist_profile') or request.user.artist_profile.id not in artist_ids:
+            return Response(
+                {"detail": "You must be an artist with items in this order to update its pickup location"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Update the pickup location
+        order.pickup_location = pickup_location
+        order.save()
+        
+        return Response(
+            self.get_serializer(order).data
+        )
+
+    @extend_schema(
+        summary="List artist orders",
+        description="Get all orders containing the authenticated artist's artworks"
+    )
+    @action(detail=False, methods=['get'], url_path='artist-orders')
+    def artist_orders(self, request):
+        # Check if user is an artist
+        if not hasattr(request.user, 'artist_profile'):
+            return Response(
+                {"detail": "You must be an artist to access this endpoint"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        artist = request.user.artist_profile
+        
+        # Get all artworks by this artist
+        artworks = Artwork.objects.filter(artist=artist)
+        artwork_ids = artworks.values_list('id', flat=True)
+        
+        # Find all orders containing these artworks
+        order_items = OrderItem.objects.filter(artwork_id__in=artwork_ids)
+        order_ids = order_items.values_list('order_id', flat=True).distinct()
+        orders = Order.objects.filter(id__in=order_ids)
+        
+        # Filter by delivery status if provided
+        delivery_status = request.query_params.get('delivery_status')
+        if delivery_status:
+            orders = orders.filter(delivery_status=delivery_status)
+            
+        # Filter by order type if provided
+        order_type = request.query_params.get('order_type')
+        if order_type:
+            orders = orders.filter(order_type=order_type)
+            
+        # Order by creation date, newest first
+        orders = orders.order_by('-created_at')
+        
+        serializer = self.get_serializer(orders, many=True)
+        return Response(serializer.data)
