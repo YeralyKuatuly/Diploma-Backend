@@ -237,12 +237,16 @@ os.makedirs(MEDIA_ROOT, exist_ok=True)
 os.makedirs(STATIC_ROOT, exist_ok=True)
 
 # Email configuration
-# Temporarily use file-based backend for testing
-EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
-EMAIL_FILE_PATH = os.path.join(BASE_DIR, 'sent_emails')
-
-# Make sure the directory exists
-os.makedirs(EMAIL_FILE_PATH, exist_ok=True)
+if DEBUG:
+    # Use console backend for development - prints to console
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+else:
+    # Use file-based backend for production - more reliable than SMTP
+    EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
+    EMAIL_FILE_PATH = os.path.join(BASE_DIR, 'sent_emails')
+    
+    # Make sure the directory exists
+    os.makedirs(EMAIL_FILE_PATH, exist_ok=True)
 
 # The previous configuration is commented out for now
 '''

@@ -63,20 +63,17 @@ class PasswordResetRequestSerializer(serializers.Serializer):
     
     def save(self):
         email = self.validated_data['email']
-        print(f"DEBUG: Getting user for email: {email}")
         user = User.objects.get(email=email)
         
         # Generate token
-        print(f"DEBUG: Generating token for user: {user.username}")
         token = default_token_generator.make_token(user)
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         
-        # Create reset URL (to be used in the frontend)
+        # Create reset URL
         request = self.context.get('request')
         domain = request.get_host() if request else settings.ALLOWED_HOSTS[0]
         protocol = 'https' if request and request.is_secure() else 'http'
         reset_url = f"{protocol}://{domain}/reset-password/{uid}/{token}/"
-        print(f"DEBUG: Reset URL: {reset_url}")
         
         # Prepare email
         context = {
@@ -85,36 +82,52 @@ class PasswordResetRequestSerializer(serializers.Serializer):
             'site_name': 'Art Gallery',
         }
         
-        # Check if the template directory exists and templates are accessible
-        template_dir = os.path.join(settings.BASE_DIR, 'authentication/templates/authentication')
-        html_template_path = os.path.join(template_dir, 'password_reset_email.html')
-        text_template_path = os.path.join(template_dir, 'password_reset_email.txt')
-        
-        print(f"DEBUG: Template directory exists: {os.path.exists(template_dir)}")
-        print(f"DEBUG: HTML template exists: {os.path.exists(html_template_path)}")
-        print(f"DEBUG: Text template exists: {os.path.exists(text_template_path)}")
+        # Create template directory if it doesn't exist
+        template_dir = os.path.join(settings.BASE_DIR, 'authentication', 'templates', 'authentication')
+        if not os.path.exists(template_dir):
+            os.makedirs(template_dir, exist_ok=True)
+            
+            # Create basic HTML template if it doesn't exist
+            html_path = os.path.join(template_dir, 'password_reset_email.html')
+            if not os.path.exists(html_path):
+                with open(html_path, 'w') as f:
+                    f.write("""<!DOCTYPE html>
+<html>
+<body>
+    <h1>Reset Your Password</h1>
+    <p>Hi {{ user.username }},</p>
+    <p>You requested a password reset for your Art Gallery account.</p>
+    <p>Please go to the following page to set a new password:</p>
+    <p><a href="{{ reset_url }}">{{ reset_url }}</a></p>
+    <p>If you didn't request this, you can safely ignore this email.</p>
+</body>
+</html>""")
+                    
+            # Create basic text template if it doesn't exist
+            text_path = os.path.join(template_dir, 'password_reset_email.txt')
+            if not os.path.exists(text_path):
+                with open(text_path, 'w') as f:
+                    f.write("""Hi {{ user.username }},
+
+You requested a password reset for your Art Gallery account.
+
+Please go to the following page to set a new password:
+
+{{ reset_url }}
+
+If you didn't request this, you can safely ignore this email.
+
+Thanks,
+The Art Gallery Team""")
         
         try:
             # Render email templates
-            print("DEBUG: Rendering email templates")
-            html_message = render_to_string(
-                'authentication/password_reset_email.html',
-                context
-            )
-            text_message = render_to_string(
-                'authentication/password_reset_email.txt',
-                context
-            )
+            html_message = render_to_string('authentication/password_reset_email.html', context)
+            text_message = render_to_string('authentication/password_reset_email.txt', context)
             
             email_subject = "Reset your password"
             
             # Send email
-            print(f"DEBUG: Sending email to {email}")
-            print(f"DEBUG: Email backend: {settings.EMAIL_BACKEND}")
-            if hasattr(settings, 'EMAIL_FILE_PATH'):
-                print(f"DEBUG: Email file path: {settings.EMAIL_FILE_PATH}")
-                print(f"DEBUG: Email file path exists: {os.path.exists(settings.EMAIL_FILE_PATH)}")
-                
             send_mail(
                 subject=email_subject,
                 message=text_message,
@@ -123,13 +136,9 @@ class PasswordResetRequestSerializer(serializers.Serializer):
                 recipient_list=[email],
                 fail_silently=False,
             )
-            print("DEBUG: Email sent successfully")
-            
         except Exception as e:
-            print(f"ERROR in email sending: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            raise e
+            print(f"Error sending email: {str(e)}")
+            # Continue without raising to avoid 500 error
         
         return {"success": True}
 

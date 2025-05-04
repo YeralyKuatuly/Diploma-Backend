@@ -19,7 +19,8 @@ from .authentication import CustomJWTAuthentication
 import threading
 
 
-# Helper function to send email in a background thread
+# Helper function to send email in a background thread - commented out for now
+'''
 def send_password_reset_email_async(serializer):
     try:
         print("DEBUG: Starting to send password reset email...")
@@ -29,6 +30,7 @@ def send_password_reset_email_async(serializer):
         print(f"ERROR: Failed to send password reset email: {str(e)}")
         import traceback
         traceback.print_exc()
+'''
 
 
 class RateLimitedTokenObtainPairView(TokenObtainPairView):
@@ -72,30 +74,31 @@ class PasswordResetRequestView(APIView):
     )
     @method_decorator(ratelimit(key='ip', rate='5/h', method=['POST']))
     def post(self, request):
-        print(f"DEBUG: Password reset requested for email: {request.data.get('email', 'not provided')}")
-        
         serializer = self.serializer_class(
             data=request.data, 
             context={'request': request}
         )
         
         if serializer.is_valid():
-            print("DEBUG: Serializer is valid")
-            # Instead of waiting for email to send, do it in a background thread
-            email_thread = threading.Thread(
-                target=send_password_reset_email_async,
-                args=(serializer,)
-            )
-            email_thread.start()
+            # Call save directly instead of using threading
+            # This is more stable for now
+            try:
+                serializer.save()
+            except Exception as e:
+                print(f"Error in password reset view: {str(e)}")
+                # Continue anyway to avoid exposing email validity
             
-            # Return success immediately
-            print("DEBUG: Returning success response")
+            # Always return success to avoid revealing if email exists
             return Response({
                 "message": "Password reset email has been sent."
             }, status=status.HTTP_200_OK)
         
-        print(f"DEBUG: Serializer validation failed: {serializer.errors}")
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        # For invalid data, still return success to avoid email enumeration
+        # But log the error for debugging
+        print(f"Serializer validation failed: {serializer.errors}")
+        return Response({
+            "message": "Password reset email has been sent."
+        }, status=status.HTTP_200_OK)
 
 
 class PasswordResetConfirmView(APIView):
