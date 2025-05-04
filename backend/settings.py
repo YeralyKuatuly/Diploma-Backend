@@ -237,6 +237,15 @@ os.makedirs(MEDIA_ROOT, exist_ok=True)
 os.makedirs(STATIC_ROOT, exist_ok=True)
 
 # Email configuration
+# Temporarily use file-based backend for testing
+EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
+EMAIL_FILE_PATH = os.path.join(BASE_DIR, 'sent_emails')
+
+# Make sure the directory exists
+os.makedirs(EMAIL_FILE_PATH, exist_ok=True)
+
+# The previous configuration is commented out for now
+'''
 if DEBUG:
     # Use console backend for development
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
@@ -255,9 +264,7 @@ else:
         # Fall back to file backend if no credentials
         EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
         EMAIL_FILE_PATH = os.path.join(BASE_DIR, 'sent_emails')
-    
-    # NOTE: For SMTP configuration, add these to your environment variables:
-    # EMAIL_HOST, EMAIL_PORT, EMAIL_USE_TLS, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD
+'''
 
 # The email address that will be shown as the sender
 # SECURITY: Don't use real addresses in defaults
