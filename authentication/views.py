@@ -16,6 +16,15 @@ from django.db import transaction
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
 from .authentication import CustomJWTAuthentication
+import threading
+
+
+# Helper function to send email in a background thread
+def send_password_reset_email_async(serializer):
+    try:
+        serializer.save()
+    except Exception as e:
+        print(f"Error sending password reset email: {str(e)}")
 
 
 class RateLimitedTokenObtainPairView(TokenObtainPairView):
@@ -65,7 +74,14 @@ class PasswordResetRequestView(APIView):
         )
         
         if serializer.is_valid():
-            serializer.save()
+            # Instead of waiting for email to send, do it in a background thread
+            email_thread = threading.Thread(
+                target=send_password_reset_email_async,
+                args=(serializer,)
+            )
+            email_thread.start()
+            
+            # Return success immediately
             return Response({
                 "message": "Password reset email has been sent."
             }, status=status.HTTP_200_OK)

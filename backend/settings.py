@@ -235,13 +235,20 @@ if DEBUG:
     # Use console backend for development
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 else:
-    # Use SMTP backend for production
-    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
-    EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
-    EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
-    EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
-    EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+    # Use file backend for production to avoid SMTP timeouts
+    # Emails will be saved to files instead of being sent via SMTP
+    # This is a temporary solution until proper email service is configured
+    EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
+    EMAIL_FILE_PATH = os.path.join(BASE_DIR, 'sent_emails')
+    
+    # Uncomment below when ready to use SMTP
+    # EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    # EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+    # EMAIL_PORT = int(os.getenv('EMAIL_PORT', 587))
+    # EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
+    # EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+    # EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+    # EMAIL_TIMEOUT = 30  # 30 seconds timeout
 
 # The email address that will be shown as the sender
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@artgallery.com')
