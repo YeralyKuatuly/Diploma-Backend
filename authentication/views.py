@@ -22,9 +22,13 @@ import threading
 # Helper function to send email in a background thread
 def send_password_reset_email_async(serializer):
     try:
-        serializer.save()
+        print("DEBUG: Starting to send password reset email...")
+        result = serializer.save()
+        print(f"DEBUG: Email sending result: {result}")
     except Exception as e:
-        print(f"Error sending password reset email: {str(e)}")
+        print(f"ERROR: Failed to send password reset email: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
 
 class RateLimitedTokenObtainPairView(TokenObtainPairView):
@@ -68,12 +72,15 @@ class PasswordResetRequestView(APIView):
     )
     @method_decorator(ratelimit(key='ip', rate='5/h', method=['POST']))
     def post(self, request):
+        print(f"DEBUG: Password reset requested for email: {request.data.get('email', 'not provided')}")
+        
         serializer = self.serializer_class(
             data=request.data, 
             context={'request': request}
         )
         
         if serializer.is_valid():
+            print("DEBUG: Serializer is valid")
             # Instead of waiting for email to send, do it in a background thread
             email_thread = threading.Thread(
                 target=send_password_reset_email_async,
@@ -82,10 +89,12 @@ class PasswordResetRequestView(APIView):
             email_thread.start()
             
             # Return success immediately
+            print("DEBUG: Returning success response")
             return Response({
                 "message": "Password reset email has been sent."
             }, status=status.HTTP_200_OK)
         
+        print(f"DEBUG: Serializer validation failed: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 

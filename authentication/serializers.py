@@ -10,6 +10,7 @@ from django.utils.encoding import force_bytes
 from django.conf import settings
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
+import os
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -51,17 +52,22 @@ class PasswordResetRequestSerializer(serializers.Serializer):
     
     def validate_email(self, value):
         """Validate that the email exists"""
+        print(f"DEBUG: Validating email: {value}")
         if not User.objects.filter(email=value).exists():
+            print(f"DEBUG: No user found with email: {value}")
             raise serializers.ValidationError(
                 "No user is registered with this email address"
             )
+        print(f"DEBUG: User found with email: {value}")
         return value
     
     def save(self):
         email = self.validated_data['email']
+        print(f"DEBUG: Getting user for email: {email}")
         user = User.objects.get(email=email)
         
         # Generate token
+        print(f"DEBUG: Generating token for user: {user.username}")
         token = default_token_generator.make_token(user)
         uid = urlsafe_base64_encode(force_bytes(user.pk))
         
@@ -70,6 +76,7 @@ class PasswordResetRequestSerializer(serializers.Serializer):
         domain = request.get_host() if request else settings.ALLOWED_HOSTS[0]
         protocol = 'https' if request and request.is_secure() else 'http'
         reset_url = f"{protocol}://{domain}/reset-password/{uid}/{token}/"
+        print(f"DEBUG: Reset URL: {reset_url}")
         
         # Prepare email
         context = {
@@ -78,27 +85,51 @@ class PasswordResetRequestSerializer(serializers.Serializer):
             'site_name': 'Art Gallery',
         }
         
-        # Render email templates
-        html_message = render_to_string(
-            'authentication/password_reset_email.html',
-            context
-        )
-        text_message = render_to_string(
-            'authentication/password_reset_email.txt',
-            context
-        )
+        # Check if the template directory exists and templates are accessible
+        template_dir = os.path.join(settings.BASE_DIR, 'authentication/templates/authentication')
+        html_template_path = os.path.join(template_dir, 'password_reset_email.html')
+        text_template_path = os.path.join(template_dir, 'password_reset_email.txt')
         
-        email_subject = "Reset your password"
+        print(f"DEBUG: Template directory exists: {os.path.exists(template_dir)}")
+        print(f"DEBUG: HTML template exists: {os.path.exists(html_template_path)}")
+        print(f"DEBUG: Text template exists: {os.path.exists(text_template_path)}")
         
-        # Send email
-        send_mail(
-            subject=email_subject,
-            message=text_message,
-            html_message=html_message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[email],
-            fail_silently=False,
-        )
+        try:
+            # Render email templates
+            print("DEBUG: Rendering email templates")
+            html_message = render_to_string(
+                'authentication/password_reset_email.html',
+                context
+            )
+            text_message = render_to_string(
+                'authentication/password_reset_email.txt',
+                context
+            )
+            
+            email_subject = "Reset your password"
+            
+            # Send email
+            print(f"DEBUG: Sending email to {email}")
+            print(f"DEBUG: Email backend: {settings.EMAIL_BACKEND}")
+            if hasattr(settings, 'EMAIL_FILE_PATH'):
+                print(f"DEBUG: Email file path: {settings.EMAIL_FILE_PATH}")
+                print(f"DEBUG: Email file path exists: {os.path.exists(settings.EMAIL_FILE_PATH)}")
+                
+            send_mail(
+                subject=email_subject,
+                message=text_message,
+                html_message=html_message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+            print("DEBUG: Email sent successfully")
+            
+        except Exception as e:
+            print(f"ERROR in email sending: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise e
         
         return {"success": True}
 
