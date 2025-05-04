@@ -2,8 +2,11 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView, TokenRefreshView)
 from rest_framework import status
 from django.contrib.auth.models import User
-from .serializers import UserSerializer, RegisterSerializer
-from rest_framework.permissions import IsAuthenticated
+from .serializers import (
+    UserSerializer, RegisterSerializer,
+    PasswordResetRequestSerializer, PasswordResetConfirmSerializer
+)
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
@@ -43,6 +46,51 @@ class RegisterView(APIView):
                 "message": "Registration successful",
                 "username": user.username
             }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetRequestSerializer
+
+    @extend_schema(
+        summary="Request password reset",
+        description="Send a password reset email to the user's email address"
+    )
+    @method_decorator(ratelimit(key='ip', rate='5/h', method=['POST']))
+    def post(self, request):
+        serializer = self.serializer_class(
+            data=request.data, 
+            context={'request': request}
+        )
+        
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                "message": "Password reset email has been sent."
+            }, status=status.HTTP_200_OK)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetConfirmSerializer
+
+    @extend_schema(
+        summary="Confirm password reset",
+        description="Reset a user's password using a token sent via email"
+    )
+    @method_decorator(ratelimit(key='ip', rate='5/h', method=['POST']))
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                "message": "Password has been reset successfully."
+            }, status=status.HTTP_200_OK)
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
