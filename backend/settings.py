@@ -252,9 +252,11 @@ try:
         os.makedirs(EMAIL_FILE_PATH, mode=0o777, exist_ok=True)
         print(f"Created email directory at {EMAIL_FILE_PATH}")
     else:
-        print(f"Email directory already exists at {EMAIL_FILE_PATH}")
+        # If directory exists but might have wrong permissions
+        os.chmod(EMAIL_FILE_PATH, 0o777)
+        print(f"Updated permissions for existing email directory at {EMAIL_FILE_PATH}")
 except Exception as e:
-    print(f"Error creating email directory: {str(e)}")
+    print(f"Error with email directory: {str(e)}")
 
 # The email address that will be shown as the sender
 # SECURITY: Don't use real addresses in defaults

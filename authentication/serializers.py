@@ -127,6 +127,20 @@ The Art Gallery Team""")
             
             email_subject = "Reset your password"
             
+            # Print debug information
+            print(f"Attempting to send password reset email to: {email}")
+            print(f"Email file path: {settings.EMAIL_FILE_PATH}")
+            
+            # First check if the directory is writeable
+            if not os.access(settings.EMAIL_FILE_PATH, os.W_OK):
+                print(f"WARNING: Directory {settings.EMAIL_FILE_PATH} is not writeable!")
+                # Try to fix permissions
+                try:
+                    os.chmod(settings.EMAIL_FILE_PATH, 0o777)
+                    print(f"Attempted to fix permissions on {settings.EMAIL_FILE_PATH}")
+                except Exception as perm_error:
+                    print(f"Failed to fix permissions: {str(perm_error)}")
+            
             # Send email
             send_mail(
                 subject=email_subject,
@@ -136,8 +150,17 @@ The Art Gallery Team""")
                 recipient_list=[email],
                 fail_silently=False,
             )
+            
+            print(f"Password reset email sent successfully to {email}")
+            # Check if file was created
+            expected_files = os.listdir(settings.EMAIL_FILE_PATH)
+            print(f"Files in email directory after sending: {expected_files}")
+            
         except Exception as e:
             print(f"Error sending email: {str(e)}")
+            # Print exception traceback for better debugging
+            import traceback
+            traceback.print_exc()
             # Continue without raising to avoid 500 error
         
         return {"success": True}
