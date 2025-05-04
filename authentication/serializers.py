@@ -20,7 +20,12 @@ class UserSerializer(serializers.ModelSerializer):
                 'id': artist.id,
                 'name': artist.name,
                 'bio': artist.bio,
-                'profile_picture': self.get_profile_picture_url(artist)
+                'profile_picture': self.get_profile_picture_url(artist),
+                'telegram': artist.telegram,
+                'whatsapp': artist.whatsapp,
+                'contact_email': artist.contact_email,
+                'kaspi_phone': artist.kaspi_phone,
+                'kaspi_card_number': artist.kaspi_card_number
             }
         except Artist.DoesNotExist:
             return None

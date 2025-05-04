@@ -97,6 +97,20 @@ class ProfileView(APIView):
                 if 'bio' in request.data:
                     artist.bio = request.data.get('bio', artist.bio)
                 
+                # Update artist's contact information if provided
+                if 'telegram' in request.data:
+                    artist.telegram = request.data.get('telegram', artist.telegram)
+                if 'whatsapp' in request.data:
+                    artist.whatsapp = request.data.get('whatsapp', artist.whatsapp)
+                if 'contact_email' in request.data:
+                    artist.contact_email = request.data.get('contact_email', artist.contact_email)
+                
+                # Update Kaspi payment details if provided
+                if 'kaspi_phone' in request.data:
+                    artist.kaspi_phone = request.data.get('kaspi_phone', artist.kaspi_phone)
+                if 'kaspi_card_number' in request.data:
+                    artist.kaspi_card_number = request.data.get('kaspi_card_number', artist.kaspi_card_number)
+                
                 # Update profile picture if provided
                 if 'profile_picture' in request.FILES:
                     # Delete old profile image if it exists

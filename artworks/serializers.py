@@ -112,7 +112,7 @@ class ArtistDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Artist
         fields = ['id', 'name', 'bio', 'profile_picture', 'artwork_count', 'artworks', 'is_subscribed',
-                 'telegram', 'whatsapp', 'contact_email']
+                 'telegram', 'whatsapp', 'contact_email', 'kaspi_phone', 'kaspi_card_number']
     
     def get_artwork_count(self, obj):
         return obj.artworks.count()
@@ -292,6 +292,7 @@ class OrderSerializer(serializers.ModelSerializer):
 
 class KaspiPaymentSerializer(serializers.ModelSerializer):
     qr_code_url = serializers.SerializerMethodField()
+    artist = ArtistSerializer(read_only=True)
     
     def get_qr_code_url(self, obj):
         if obj.qr_code_image and hasattr(obj.qr_code_image, 'url'):
